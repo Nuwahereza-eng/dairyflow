@@ -58,7 +58,7 @@ export function DeliveriesTable({ deliveries, onEdit, onDelete }: DeliveriesTabl
           ) : (
             deliveries.map((delivery) => (
               <TableRow key={delivery.id}>
-                <TableCell>{format(new Date(delivery.date + 'T00:00:00'), 'PP')}</TableCell> {/* Ensure date is parsed correctly */}
+                <TableCell>{format(new Date(delivery.date + 'T00:00:00'), 'PP')}</TableCell>
                 <TableCell>{delivery.time}</TableCell>
                 <TableCell className="font-medium">{delivery.farmerName || 'N/A'}</TableCell>
                 <TableCell>{delivery.quantity.toFixed(1)}</TableCell>

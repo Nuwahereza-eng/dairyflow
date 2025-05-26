@@ -5,10 +5,12 @@
  *
  * - sendDeliveryNotification - Sends an SMS notification to a farmer after a milk delivery is recorded.
  * - SendDeliveryNotificationInput - The input type for the sendDeliveryNotification function.
+ * - SendDeliveryNotificationOutput - The return type for the sendDeliveryNotification function.
  */
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
+import twilio from 'twilio';
 
 const SendDeliveryNotificationInputSchema = z.object({
   phoneNumber: z.string().describe('The phone number of the farmer to send the SMS to.'),
@@ -19,12 +21,20 @@ const SendDeliveryNotificationInputSchema = z.object({
 
 export type SendDeliveryNotificationInput = z.infer<typeof SendDeliveryNotificationInputSchema>;
 
-export async function sendDeliveryNotification(input: SendDeliveryNotificationInput): Promise<void> {
-  await sendDeliveryNotificationFlow(input);
+const SendDeliveryNotificationOutputSchema = z.object({
+  success: z.boolean().describe('Whether the SMS notification was sent successfully.'),
+  statusMessage: z.string().describe('A message indicating the status of the SMS (e.g., "SMS sent", "Failed to send SMS", "SMS simulated").'),
+  messageSid: z.string().optional().describe('The Twilio message SID if sent successfully.'),
+});
+export type SendDeliveryNotificationOutput = z.infer<typeof SendDeliveryNotificationOutputSchema>;
+
+
+export async function sendDeliveryNotification(input: SendDeliveryNotificationInput): Promise<SendDeliveryNotificationOutput> {
+  return sendDeliveryNotificationFlow(input);
 }
 
-const prompt = ai.definePrompt({
-  name: 'sendDeliveryNotificationPrompt',
+const deliveryPrompt = ai.definePrompt({
+  name: 'generateDeliverySMSPrompt',
   input: {schema: SendDeliveryNotificationInputSchema},
   prompt: `Dear Farmer, we have recorded your milk delivery of {{quantity}} liters with grade {{quality}}. Your estimated payment is UGX {{amount}}. Thank you for your contribution!`,
 });
@@ -33,19 +43,32 @@ const sendDeliveryNotificationFlow = ai.defineFlow(
   {
     name: 'sendDeliveryNotificationFlow',
     inputSchema: SendDeliveryNotificationInputSchema,
-    outputSchema: z.void(),
+    outputSchema: SendDeliveryNotificationOutputSchema,
   },
-  async input => {
-    // The prompt is not used since SMS sending is handled outside the LLM.
-    // Instead, we just log the SMS content here for demonstration.
-    const message = `SMS to ${input.phoneNumber}: ${prompt(input)}`;
-    console.log(message);
+  async (input): Promise<SendDeliveryNotificationOutput> => {
+    const { text: messageContent } = await deliveryPrompt(input);
 
-    // In a real implementation, you would call an SMS API here.
-    // For example, using Africa's Talking or Twilio.
-    // This is a placeholder for that functionality.
-    // await smsService.sendSms(input.phoneNumber, message);
+    const accountSid = process.env.TWILIO_ACCOUNT_SID;
+    const authToken = process.env.TWILIO_AUTH_TOKEN;
+    const twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER;
 
-    return;
+    if (accountSid && authToken && twilioPhoneNumber) {
+      try {
+        const client = twilio(accountSid, authToken);
+        const message = await client.messages.create({
+          body: messageContent!,
+          from: twilioPhoneNumber,
+          to: input.phoneNumber,
+        });
+        console.log(`Twilio SMS sent successfully to ${input.phoneNumber}. SID: ${message.sid}`);
+        return { success: true, statusMessage: 'SMS sent successfully via Twilio.', messageSid: message.sid };
+      } catch (error: any) {
+        console.error(`Failed to send Twilio SMS to ${input.phoneNumber}:`, error);
+        return { success: false, statusMessage: `Failed to send SMS via Twilio: ${error.message}` };
+      }
+    } else {
+      console.log(`Simulated SMS (Twilio credentials not configured in .env): To ${input.phoneNumber} - Content: ${messageContent}`);
+      return { success: true, statusMessage: 'SMS simulated. Twilio credentials not found in .env.' };
+    }
   }
 );

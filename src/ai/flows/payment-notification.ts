@@ -11,6 +11,7 @@
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
+import twilio from 'twilio';
 
 const SendPaymentNotificationInputSchema = z.object({
   phoneNumber: z
@@ -23,9 +24,11 @@ export type SendPaymentNotificationInput = z.infer<
   typeof SendPaymentNotificationInputSchema
 >;
 
+// Updated output schema
 const SendPaymentNotificationOutputSchema = z.object({
-  success: z.boolean().describe('Whether the SMS notification was sent successfully.'),
-  message: z.string().describe('The message that was sent.'),
+  success: z.boolean().describe('Whether the SMS notification was sent successfully via Twilio or simulated.'),
+  statusMessage: z.string().describe('A message indicating the status of the SMS (e.g., "SMS sent", "Failed to send SMS", "SMS simulated").'),
+  messageSid: z.string().optional().describe('The Twilio message SID if sent successfully.'),
 });
 export type SendPaymentNotificationOutput = z.infer<
   typeof SendPaymentNotificationOutputSchema
@@ -37,26 +40,21 @@ export async function sendPaymentNotification(
   return sendPaymentNotificationFlow(input);
 }
 
-const sendPaymentNotificationPrompt = ai.definePrompt({
-  name: 'sendPaymentNotificationPrompt',
+// This prompt now only focuses on generating the message content.
+const generatePaymentSMSPrompt = ai.definePrompt({
+  name: 'generatePaymentSMSPrompt',
   input: {schema: SendPaymentNotificationInputSchema},
-  output: {schema: SendPaymentNotificationOutputSchema},
-  prompt: `You are tasked with sending an SMS notification to a farmer after their payment has been processed.
-
-  Compose a concise and informative SMS message to the farmer, including the amount paid and the payment period.
-
-  Input:
-  - Farmer's Phone Number: {{{phoneNumber}}}
-  - Amount Paid: {{{amount}}}
-  - Payment Period: {{{period}}}
-
-  Output (JSON):
-  {
-    "success": true,
-    "message": "Payment processed: UGX {{{amount}}} for {{{period}}}. Thank you!"
-  }
-  `,
+  output: { // This output is just the SMS content string
+    schema: z.string() 
+  },
+  prompt: `Compose a concise and informative SMS message for a farmer about their payment.
+  Payment Amount: {{{amount}}} UGX
+  Payment Period: {{{period}}}
+  Message: Payment processed: UGX {{{amount}}} for {{{period}}}. Thank you!
+  
+  Return ONLY the message content.`,
 });
+
 
 const sendPaymentNotificationFlow = ai.defineFlow(
   {
@@ -64,8 +62,34 @@ const sendPaymentNotificationFlow = ai.defineFlow(
     inputSchema: SendPaymentNotificationInputSchema,
     outputSchema: SendPaymentNotificationOutputSchema,
   },
-  async input => {
-    const {output} = await sendPaymentNotificationPrompt(input);
-    return output!;
+  async (input): Promise<SendPaymentNotificationOutput> => {
+    const { output: messageContent } = await generatePaymentSMSPrompt(input);
+
+    if (!messageContent) {
+      return { success: false, statusMessage: "Failed to generate SMS content." };
+    }
+
+    const accountSid = process.env.TWILIO_ACCOUNT_SID;
+    const authToken = process.env.TWILIO_AUTH_TOKEN;
+    const twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER;
+
+    if (accountSid && authToken && twilioPhoneNumber) {
+      try {
+        const client = twilio(accountSid, authToken);
+        const message = await client.messages.create({
+          body: messageContent,
+          from: twilioPhoneNumber,
+          to: input.phoneNumber,
+        });
+        console.log(`Twilio SMS sent successfully to ${input.phoneNumber}. SID: ${message.sid}`);
+        return { success: true, statusMessage: 'SMS sent successfully via Twilio.', messageSid: message.sid };
+      } catch (error: any) {
+        console.error(`Failed to send Twilio SMS to ${input.phoneNumber}:`, error);
+        return { success: false, statusMessage: `Failed to send SMS via Twilio: ${error.message}` };
+      }
+    } else {
+      console.log(`Simulated SMS (Twilio credentials not configured in .env): To ${input.phoneNumber} - Content: ${messageContent}`);
+      return { success: true, statusMessage: 'SMS simulated. Twilio credentials not found in .env.' };
+    }
   }
 );

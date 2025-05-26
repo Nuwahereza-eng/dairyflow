@@ -1,15 +1,16 @@
+
 "use server";
 
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import type { Delivery, Farmer } from "@/types";
-import { initialDeliveries, initialFarmers, initialPayments, initialSystemSettings } from "@/lib/mockData";
+import { initialDeliveries, initialFarmers, initialPayments } from "@/lib/mockData";
 import { sendDeliveryNotification } from '@/ai/flows/sms-notifications';
+import { getSystemSettings } from '@/app/(app)/settings/actions'; // Import the getter for system settings
 
 let deliveriesStore: Delivery[] = [...initialDeliveries];
 const farmersStore: Farmer[] = [...initialFarmers]; // Needed to get farmer phone for SMS
 let paymentsStore = [...initialPayments]; // Keep payments in sync
-let systemSettingsStore = {...initialSystemSettings}; // For milk price
 
 const deliverySchemaBase = z.object({
   farmerId: z.string().min(1, "Farmer selection is required"),
@@ -25,11 +26,12 @@ const deliverySchema = deliverySchemaBase.extend({
 });
 
 
-function calculateAmount(quantity: number, quality: 'A' | 'B' | 'C'): number {
-  const basePrice = systemSettingsStore.milkPricePerLiter;
+async function calculateAmount(quantity: number, quality: 'A' | 'B' | 'C'): Promise<number> {
+  const systemSettings = await getSystemSettings();
+  const basePrice = systemSettings.milkPricePerLiter;
   let priceMultiplier = 1;
-  if (quality === 'B') priceMultiplier = 0.9; // Example: Grade B is 90% of base
-  else if (quality === 'C') priceMultiplier = 0.8; // Example: Grade C is 80% of base
+  if (quality === 'B') priceMultiplier = 0.9; 
+  else if (quality === 'C') priceMultiplier = 0.8; 
   return parseFloat((quantity * basePrice * priceMultiplier).toFixed(2));
 }
 
@@ -47,7 +49,7 @@ export async function recordDeliveryAction(data: Omit<Delivery, 'id' | 'amount' 
     return { success: false, errors: validatedData.error.flatten().fieldErrors };
   }
 
-  const amount = calculateAmount(validatedData.data.quantity, validatedData.data.quality);
+  const amount = await calculateAmount(validatedData.data.quantity, validatedData.data.quality);
   const newDelivery: Delivery = {
     ...validatedData.data,
     id: (deliveriesStore.length + 1).toString(),
@@ -55,17 +57,15 @@ export async function recordDeliveryAction(data: Omit<Delivery, 'id' | 'amount' 
   };
   deliveriesStore.push(newDelivery);
 
-  // Update farmer's payment record
   const paymentIndex = paymentsStore.findIndex(p => p.farmerId === newDelivery.farmerId);
   if (paymentIndex !== -1) {
     paymentsStore[paymentIndex].totalLiters += newDelivery.quantity;
     paymentsStore[paymentIndex].amountDue += newDelivery.amount;
-    // Ensure farmerName is consistent if already there
     if (!paymentsStore[paymentIndex].farmerName) {
       const farmer = farmersStore.find(f => f.id === newDelivery.farmerId);
       paymentsStore[paymentIndex].farmerName = farmer?.name;
     }
-  } else { // If no payment record for current period, create one (simplified for demo)
+  } else { 
     const farmer = farmersStore.find(f => f.id === newDelivery.farmerId);
     const currentPeriod = new Date().toLocaleString('default', { month: 'long', year: 'numeric' });
     paymentsStore.push({
@@ -79,9 +79,10 @@ export async function recordDeliveryAction(data: Omit<Delivery, 'id' | 'amount' 
     });
   }
 
-
   const farmer = farmersStore.find(f => f.id === newDelivery.farmerId);
-  if (farmer && farmer.phone && systemSettingsStore.smsProvider !== 'none') {
+  const currentSystemSettings = await getSystemSettings(); // Fetch current settings
+
+  if (farmer && farmer.phone && currentSystemSettings.smsProvider !== 'none') {
     try {
       const smsResult = await sendDeliveryNotification({
         phoneNumber: farmer.phone,
@@ -89,19 +90,22 @@ export async function recordDeliveryAction(data: Omit<Delivery, 'id' | 'amount' 
         quality: newDelivery.quality,
         amount: newDelivery.amount,
       });
-      console.log("Delivery SMS Notification Result:", smsResult); // Added logging
+      console.log("Delivery SMS Notification Result:", smsResult); 
     } catch (error) {
       console.error("Failed to call sendDeliveryNotification flow:", error);
-      // Log error but don't fail the delivery recording
     }
-  } else if (farmer && farmer.phone && systemSettingsStore.smsProvider === 'none') {
-    console.log(`Simulated SMS (provider 'none'): Delivery to ${farmer.phone} for ${newDelivery.quantity}L, Grade ${newDelivery.quality}, Amount ${newDelivery.amount}.`);
+  } else if (farmer && farmer.phone && currentSystemSettings.smsProvider === 'none') {
+    console.log(`Simulated SMS (provider 'none'): Delivery to ${farmer.phone} for ${newDelivery.quantity}L, Grade ${newDelivery.quality}, Amount ${newDelivery.amount}. Settings:`, currentSystemSettings);
+  } else if (farmer && !farmer.phone) {
+    console.log(`SMS not sent for delivery: Farmer ${farmer.name} has no phone number.`);
+  } else if (!farmer) {
+    console.log(`SMS not sent for delivery: Farmer with ID ${newDelivery.farmerId} not found.`);
   }
 
 
   revalidatePath("/deliveries");
-  revalidatePath("/dashboard"); // For stats
-  revalidatePath("/payments"); // For updated payment dues
+  revalidatePath("/dashboard"); 
+  revalidatePath("/payments"); 
   return { success: true, delivery: newDelivery };
 }
 
@@ -122,9 +126,8 @@ export async function updateDeliveryAction(id: string, data: Partial<Omit<Delive
   const updatedFields = validatedData.data;
   const newQuantity = updatedFields.quantity ?? originalDelivery.quantity;
   const newQuality = updatedFields.quality ?? originalDelivery.quality;
-  const newAmount = calculateAmount(newQuantity, newQuality);
+  const newAmount = await calculateAmount(newQuantity, newQuality);
 
-  // Recalculate payment diff
   const oldPaymentContribution = originalDelivery.amount;
   const newPaymentContribution = newAmount;
   const paymentDiff = newPaymentContribution - oldPaymentContribution;
@@ -133,12 +136,11 @@ export async function updateDeliveryAction(id: string, data: Partial<Omit<Delive
   deliveriesStore[deliveryIndex] = { 
     ...originalDelivery, 
     ...updatedFields,
-    quantity: newQuantity, // ensure these are explicitly set
+    quantity: newQuantity, 
     quality: newQuality,
     amount: newAmount 
   };
 
-  // Update payment record
   const paymentIndex = paymentsStore.findIndex(p => p.farmerId === originalDelivery.farmerId);
   if (paymentIndex !== -1) {
     paymentsStore[paymentIndex].totalLiters += quantityDiff;
@@ -160,7 +162,6 @@ export async function deleteDeliveryAction(id: string) {
   const deletedDelivery = deliveriesStore[deliveryIndex];
   deliveriesStore.splice(deliveryIndex, 1);
 
-  // Revert payment record
   const paymentIndex = paymentsStore.findIndex(p => p.farmerId === deletedDelivery.farmerId);
   if (paymentIndex !== -1) {
     paymentsStore[paymentIndex].totalLiters -= deletedDelivery.quantity;

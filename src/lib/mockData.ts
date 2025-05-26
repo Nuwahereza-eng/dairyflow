@@ -1,7 +1,8 @@
+
 import type { Farmer, Delivery, Payment, User, SystemSettings } from '@/types';
 
 export const initialFarmers: Farmer[] = [
-  { id: '1', name: 'John Mukasa', phone: '+256701234567', location: 'Kampala', joinDate: '2024-01-15', idNumber: 'CF123456', notes: 'Reliable farmer' },
+  { id: '1', name: 'John Mukasa', phone: '+256779081600', location: 'Kampala', joinDate: '2024-01-15', idNumber: 'CF123456', notes: 'Reliable farmer' }, // Updated phone number
   { id: '2', name: 'Mary Nalubega', phone: '+256702345678', location: 'Wakiso', joinDate: '2024-02-01', idNumber: 'CF123457', notes: 'High quality milk' },
   { id: '3', name: 'Peter Ssali', phone: '+256703456789', location: 'Mukono', joinDate: '2024-01-20', idNumber: 'CF123458', notes: 'Large scale farmer' }
 ];
@@ -36,3 +37,4 @@ export const getFarmerName = (farmerId: string, farmers: Farmer[]): string => {
   const farmer = farmers.find(f => f.id === farmerId);
   return farmer ? farmer.name : 'Unknown Farmer';
 };
+

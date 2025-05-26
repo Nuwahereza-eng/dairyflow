@@ -83,14 +83,15 @@ export async function recordDeliveryAction(data: Omit<Delivery, 'id' | 'amount' 
   const farmer = farmersStore.find(f => f.id === newDelivery.farmerId);
   if (farmer && farmer.phone && systemSettingsStore.smsProvider !== 'none') {
     try {
-      await sendDeliveryNotification({
+      const smsResult = await sendDeliveryNotification({
         phoneNumber: farmer.phone,
         quantity: newDelivery.quantity,
         quality: newDelivery.quality,
         amount: newDelivery.amount,
       });
+      console.log("Delivery SMS Notification Result:", smsResult); // Added logging
     } catch (error) {
-      console.error("Failed to send delivery SMS:", error);
+      console.error("Failed to call sendDeliveryNotification flow:", error);
       // Log error but don't fail the delivery recording
     }
   } else if (farmer && farmer.phone && systemSettingsStore.smsProvider === 'none') {

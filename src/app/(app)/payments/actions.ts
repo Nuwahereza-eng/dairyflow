@@ -39,9 +39,9 @@ export async function processSinglePaymentAction(paymentId: string): Promise<{ s
         amount: payment.amountDue,
         period: payment.period,
       });
-      console.log("Payment SMS result:", smsResult);
+      console.log("Payment SMS Notification Result for single payment:", smsResult); // Added logging
     } catch (error) {
-      console.error("Failed to send payment SMS:", error);
+      console.error("Failed to call sendPaymentNotification flow for single payment:", error);
       // Log error but don't fail the payment processing
     }
   } else if (farmer && farmer.phone && systemSettingsStore.smsProvider === 'none') {
@@ -71,13 +71,14 @@ export async function processAllPendingPaymentsAction(): Promise<{ success: bool
       const farmer = farmersStore.find(f => f.id === payment.farmerId);
       if (farmer && farmer.phone && systemSettingsStore.smsProvider !== 'none') {
         try {
-          await sendPaymentNotification({
+          const smsResult = await sendPaymentNotification({
             phoneNumber: farmer.phone,
             amount: payment.amountDue,
             period: payment.period,
           });
+           console.log(`Payment SMS Notification Result for ${farmer.name || 'farmer ' + farmer.id}:`, smsResult); // Added logging
         } catch (error) {
-          console.error(`Failed to send payment SMS to ${farmer.name}:`, error);
+          console.error(`Failed to call sendPaymentNotification flow for ${farmer.name || 'farmer ' + farmer.id}:`, error);
         }
       } else if (farmer && farmer.phone && systemSettingsStore.smsProvider === 'none') {
          console.log(`Simulated SMS (provider 'none'): Payment to ${farmer.phone} of UGX ${payment.amountDue} for ${payment.period}.`);

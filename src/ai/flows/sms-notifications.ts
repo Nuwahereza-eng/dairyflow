@@ -38,7 +38,14 @@ export async function sendDeliveryNotification(input: SendDeliveryNotificationIn
 const deliveryPrompt = ai.definePrompt({
   name: 'generateDeliverySMSPrompt',
   input: {schema: SendDeliveryNotificationInputSchema},
-  prompt: `Dear Farmer, we have recorded your milk delivery of {{quantity}} liters with grade {{quality}}. Your estimated payment is UGX {{amount}}. Thank you for your contribution!`,
+  output: { schema: z.string() }, // Explicitly expect a string output
+  prompt: `Compose a concise SMS for a milk delivery.
+  Quantity: {{quantity}} liters
+  Quality: Grade {{quality}}
+  Estimated Payment: UGX {{amount}}
+  Message: Dear Farmer, your delivery of {{quantity}}L (Grade {{quality}}) for UGX {{amount}} is recorded. Thank you!
+
+  Return ONLY the message content.`, // Instruct to return only the message
 });
 
 const sendDeliveryNotificationFlow = ai.defineFlow(
@@ -48,7 +55,8 @@ const sendDeliveryNotificationFlow = ai.defineFlow(
     outputSchema: SendDeliveryNotificationOutputSchema,
   },
   async (input): Promise<SendDeliveryNotificationOutput> => {
-    const { text: messageContent } = await deliveryPrompt(input);
+    // Use 'output' which corresponds to the defined output schema
+    const { output: messageContent } = await deliveryPrompt(input);
 
     if (!messageContent) {
       console.error("SMS Notification Error: Failed to generate message content for delivery.", input);
@@ -60,12 +68,14 @@ const sendDeliveryNotificationFlow = ai.defineFlow(
     const twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER;
 
     console.log(`Attempting to send delivery SMS. To: ${input.phoneNumber}, From: ${twilioPhoneNumber}, Account SID: ${accountSid ? 'Exists' : 'MISSING'}`);
+    console.log(`SMS Content to send: "${messageContent}"`);
+
 
     if (accountSid && authToken && twilioPhoneNumber) {
       try {
         const client = twilio(accountSid, authToken);
         const message = await client.messages.create({
-          body: messageContent!,
+          body: messageContent, // Use the directly obtained string
           from: twilioPhoneNumber,
           to: input.phoneNumber,
         });
@@ -76,8 +86,9 @@ const sendDeliveryNotificationFlow = ai.defineFlow(
         return { success: false, statusMessage: `Failed to send SMS via Twilio: ${error.message}`, errorDetails: JSON.stringify(error) };
       }
     } else {
-      console.warn(`Twilio delivery SMS simulated (credentials missing). To: ${input.phoneNumber}, From: ${twilioPhoneNumber}. Content: ${messageContent}`);
+      console.warn(`Twilio delivery SMS simulated (credentials missing). To: ${input.phoneNumber}, From: ${twilioPhoneNumber}. Content: "${messageContent}"`);
       return { success: true, statusMessage: 'SMS simulated. Twilio credentials not found or incomplete in .env.' };
     }
   }
 );
+

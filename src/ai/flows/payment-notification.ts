@@ -1,3 +1,4 @@
+
 // src/ai/flows/payment-notification.ts
 'use server';
 
@@ -29,6 +30,7 @@ const SendPaymentNotificationOutputSchema = z.object({
   success: z.boolean().describe('Whether the SMS notification was sent successfully via Twilio or simulated.'),
   statusMessage: z.string().describe('A message indicating the status of the SMS (e.g., "SMS sent", "Failed to send SMS", "SMS simulated").'),
   messageSid: z.string().optional().describe('The Twilio message SID if sent successfully.'),
+  errorDetails: z.string().optional().describe('Detailed error if sending failed.'),
 });
 export type SendPaymentNotificationOutput = z.infer<
   typeof SendPaymentNotificationOutputSchema
@@ -66,12 +68,15 @@ const sendPaymentNotificationFlow = ai.defineFlow(
     const { output: messageContent } = await generatePaymentSMSPrompt(input);
 
     if (!messageContent) {
+      console.error("SMS Notification Error: Failed to generate message content for payment.", input);
       return { success: false, statusMessage: "Failed to generate SMS content." };
     }
 
     const accountSid = process.env.TWILIO_ACCOUNT_SID;
     const authToken = process.env.TWILIO_AUTH_TOKEN;
     const twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER;
+    
+    console.log(`Attempting to send payment SMS. To: ${input.phoneNumber}, From: ${twilioPhoneNumber}, Account SID: ${accountSid ? 'Exists' : 'MISSING'}`);
 
     if (accountSid && authToken && twilioPhoneNumber) {
       try {
@@ -81,15 +86,16 @@ const sendPaymentNotificationFlow = ai.defineFlow(
           from: twilioPhoneNumber,
           to: input.phoneNumber,
         });
-        console.log(`Twilio SMS sent successfully to ${input.phoneNumber}. SID: ${message.sid}`);
+        console.log(`Twilio payment SMS sent. To: ${input.phoneNumber}, From: ${twilioPhoneNumber}, SID: ${message.sid}`);
         return { success: true, statusMessage: 'SMS sent successfully via Twilio.', messageSid: message.sid };
       } catch (error: any) {
-        console.error(`Failed to send Twilio SMS to ${input.phoneNumber}:`, error);
-        return { success: false, statusMessage: `Failed to send SMS via Twilio: ${error.message}` };
+        console.error(`Twilio payment SMS failed. To: ${input.phoneNumber}, From: ${twilioPhoneNumber}. Error:`, JSON.stringify(error, null, 2));
+        return { success: false, statusMessage: `Failed to send SMS via Twilio: ${error.message}`, errorDetails: JSON.stringify(error) };
       }
     } else {
-      console.log(`Simulated SMS (Twilio credentials not configured in .env): To ${input.phoneNumber} - Content: ${messageContent}`);
-      return { success: true, statusMessage: 'SMS simulated. Twilio credentials not found in .env.' };
+      console.warn(`Twilio payment SMS simulated (credentials missing). To: ${input.phoneNumber}, From: ${twilioPhoneNumber}. Content: ${messageContent}`);
+      return { success: true, statusMessage: 'SMS simulated. Twilio credentials not found or incomplete in .env.' };
     }
   }
 );
+

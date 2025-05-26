@@ -15,7 +15,7 @@ import { DeliveryDialog } from "@/components/deliveries/DeliveryDialog";
 import { PageHeader } from "@/components/shared/PageHeader";
 import type { Delivery, Farmer } from "@/types";
 import { getDeliveries, deleteDeliveryAction, getDeliveryFarmers } from "./actions";
-import { PlusCircle, Filter, ListX } from "lucide-react";
+import { PlusCircle, Filter, ListX, Truck } from "lucide-react"; // Added Truck icon
 import { useToast } from "@/hooks/use-toast";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 
@@ -117,7 +117,7 @@ export default function DeliveriesPage() {
                 <SelectValue placeholder="All Farmers" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Farmers</SelectItem>
+                {/* <SelectItem value="">All Farmers</SelectItem> <- Removed this line */}
                 {farmers.map(farmer => (
                   <SelectItem key={farmer.id} value={farmer.id}>
                     {farmer.name}

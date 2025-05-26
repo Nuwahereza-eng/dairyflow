@@ -1,3 +1,4 @@
+
 "use server";
 
 import type { Delivery, Farmer, Payment } from "@/types";
@@ -23,9 +24,9 @@ interface FarmerReportData {
 
 interface MonthlySummaryData {
   totalDeliveries: number;
-  gradeA L: number;
-  gradeB L: number;
-  gradeC L: number;
+  gradeACount: number; // Corrected from 'gradeA L'
+  gradeBCount: number; // Corrected from 'gradeB L'
+  gradeCCount: number; // Corrected from 'gradeC L'
   gradeALiters: number;
   gradeBLiters: number;
   gradeCLiters: number;
@@ -34,7 +35,7 @@ interface MonthlySummaryData {
 interface QualityReportData {
   gradeALiters: number;
   gradeBLiters: number;
-  gradeCLiters:
+  gradeCLiters: number;
   totalLiters: number;
   gradeAPercentage: number;
   gradeBPercentage: number;
@@ -135,3 +136,4 @@ export async function generateReportData(
       return { error: "Invalid report type" };
   }
 }
+

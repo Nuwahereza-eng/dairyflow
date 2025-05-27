@@ -5,19 +5,16 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import type { SystemSettings, User, UserRole } from "@/types";
 import { db } from "@/lib/firebaseAdmin";
-import { initialSystemSettings, initialUsers } from "@/lib/mockData"; // Keep initialUsers for now
-
-// For demo, user management remains in-memory for now.
-let usersStore: User[] = [...initialUsers];
+import { initialSystemSettings, initialUsers } from "@/lib/mockData";
 
 const SETTINGS_COLLECTION = "system_config";
-const SETTINGS_DOC_ID = "main";
+const SETTINGS_DOC_ID = "main"; // Using a fixed ID for the single settings document
 
 const systemSettingsSchema = z.object({
   milkPricePerLiter: z.coerce.number().min(0, "Milk price must be non-negative"),
   smsProvider: z.enum(["africas_talking", "twilio", "none"]),
-  smsApiKey: z.string().optional().default(''), // Provide default for optional to align with Firestore
-  smsUsername: z.string().optional().default(''),// Provide default for optional
+  smsApiKey: z.string().optional().default(''),
+  smsUsername: z.string().optional().default(''),
 });
 
 const userSchema = z.object({
@@ -37,9 +34,8 @@ export async function getSystemSettings(): Promise<SystemSettings> {
       console.log("Fetched system settings from Firestore.");
       return settingsDoc.data() as SystemSettings;
     } else {
-      console.log("No system settings found in Firestore. Creating with defaults.");
+      console.log("No system settings found in Firestore. Creating with defaults and returning them.");
       // If document doesn't exist, create it with initial/default settings
-      // Ensure initialSystemSettings has all fields or defaults for optional ones.
       const defaultsToSave: SystemSettings = {
         milkPricePerLiter: initialSystemSettings.milkPricePerLiter,
         smsProvider: initialSystemSettings.smsProvider,
@@ -53,12 +49,13 @@ export async function getSystemSettings(): Promise<SystemSettings> {
   } catch (error) {
     console.error("Error fetching or creating system settings:", error);
     // Fallback to in-memory defaults if Firestore fails critically
+    // In a production app, you might want to throw an error or handle this more gracefully
+    console.warn("Falling back to initialSystemSettings due to Firestore error.");
     return initialSystemSettings;
   }
 }
 
 export async function saveSystemSettingsAction(data: Partial<SystemSettings>) {
-  // Use partial schema for updates, as not all fields might be sent
   const validatedData = systemSettingsSchema.partial().safeParse(data);
   if (!validatedData.success) {
     console.error("System settings validation failed:", validatedData.error.flatten().fieldErrors);
@@ -67,27 +64,30 @@ export async function saveSystemSettingsAction(data: Partial<SystemSettings>) {
   
   try {
     const settingsDocRef = db.collection(SETTINGS_COLLECTION).doc(SETTINGS_DOC_ID);
-    // Use set with merge: true to create if not exists or update existing
     await settingsDocRef.set(validatedData.data, { merge: true }); 
     console.log("System settings saved successfully to Firestore:", validatedData.data);
     
     revalidatePath("/settings");
+    
     // Fetch the updated settings to return
     const updatedSettingsDoc = await settingsDocRef.get();
-    if (updatedSettingsDoc.exists()) {
+    if (updatedSettingsDoc.exists) { // Corrected: .exists is a property, not a method
       return { success: true, settings: updatedSettingsDoc.data() as SystemSettings };
     }
     // Should not happen if set was successful, but as a fallback
+    console.warn("Updated settings document not found immediately after save. This is unexpected.");
     return { success: true, settings: { ...initialSystemSettings, ...validatedData.data } };
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error saving system settings to Firestore:", error);
-    return { success: false, errors: { _form: ["Failed to save settings to database."] } };
+    return { success: false, errors: { _form: ["Failed to save settings to database."] }, message: error.message };
   }
 }
 
 
 // User management functions remain in-memory for now
+let usersStore: User[] = [...initialUsers];
+
 export async function getUsers(): Promise<Omit<User, 'password'>[]> {
   return JSON.parse(JSON.stringify(usersStore.map(({ password, ...user }) => user)));
 }
@@ -108,7 +108,7 @@ export async function addUserAction(data: Omit<User, 'id'>) {
 
   const newUser: User = {
     ...validatedData.data,
-    id: (usersStore.length + 1 + Math.random()).toString(), // Simple ID
+    id: (usersStore.length + 1 + Math.random()).toString(), 
   };
   usersStore.push(newUser);
   
@@ -168,5 +168,3 @@ export async function updateUserPasswordAction(id: string, newPassword: string) 
   revalidatePath("/settings"); 
   return { success: true, message: "Password updated successfully." };
 }
-
-    

@@ -47,13 +47,13 @@ const generatePaymentSMSPrompt = ai.definePrompt({
   name: 'generatePaymentSMSPrompt',
   input: {schema: SendPaymentNotificationInputSchema},
   output: { // This output is just the SMS content string
-    schema: z.string() 
+    schema: z.string()
   },
   prompt: `Compose a concise and informative SMS message for a farmer about their payment.
-  Payment Amount: {{{amount}}} UGX
-  Payment Period: {{{period}}}
-  Message: Payment processed: UGX {{{amount}}} for {{{period}}}. Thank you!
-  
+  Payment Amount: {{amount}} UGX
+  Payment Period: {{period}}
+  Message: Payment processed: {{amount}} UGX for {{period}}. Thank you!
+
   Return ONLY the message content.`,
 });
 
@@ -68,14 +68,14 @@ const sendPaymentNotificationFlow = ai.defineFlow(
     const { output: messageContent } = await generatePaymentSMSPrompt(input);
 
     if (!messageContent) {
-      console.error("SMS Notification Error: Failed to generate message content for payment.", input);
-      return { success: false, statusMessage: "Failed to generate SMS content." };
+      console.error("SMS Notification Error: Failed to generate message content for payment. Received null or empty.", input);
+      return { success: false, statusMessage: "Failed to generate SMS content (received null/empty)." };
     }
 
     const accountSid = process.env.TWILIO_ACCOUNT_SID;
     const authToken = process.env.TWILIO_AUTH_TOKEN;
     const twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER;
-    
+
     console.log(`Attempting to send payment SMS. To: ${input.phoneNumber}, From: ${twilioPhoneNumber}, Account SID: ${accountSid ? 'Exists' : 'MISSING'}`);
 
     if (accountSid && authToken && twilioPhoneNumber) {
@@ -90,7 +90,7 @@ const sendPaymentNotificationFlow = ai.defineFlow(
         return { success: true, statusMessage: 'SMS sent successfully via Twilio.', messageSid: message.sid };
       } catch (error: any) {
         console.error(`Twilio payment SMS failed. To: ${input.phoneNumber}, From: ${twilioPhoneNumber}. Error:`, JSON.stringify(error, null, 2));
-        return { success: false, statusMessage: `Failed to send SMS via Twilio: ${error.message}`, errorDetails: JSON.stringify(error) };
+        return { success: false, statusMessage: `Failed to send SMS via Twilio: ${error.message || 'Unknown error'}`, errorDetails: JSON.stringify(error) };
       }
     } else {
       console.warn(`Twilio payment SMS simulated (credentials missing). To: ${input.phoneNumber}, From: ${twilioPhoneNumber}. Content: ${messageContent}`);
@@ -98,4 +98,3 @@ const sendPaymentNotificationFlow = ai.defineFlow(
     }
   }
 );
-

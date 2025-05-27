@@ -1,109 +1,108 @@
+
 "use server";
 
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import type { Farmer } from "@/types";
-import { initialFarmers, initialPayments } from "@/lib/mockData"; // In a real app, this would be a database
-import { sendDeliveryNotification } from "@/ai/flows/sms-notifications"; // Example usage, though not directly for farmer creation
-
-// For demo, we'll mutate an in-memory array.
-// In a real app, use a database.
-let farmersStore: Farmer[] = [...initialFarmers];
-let paymentsStore = [...initialPayments]; // Keep payments in sync for new farmers
+import { db } from "@/lib/firebaseAdmin"; // Import Firestore instance
 
 const farmerSchema = z.object({
-  id: z.string().optional(), // Optional for creation
+  id: z.string().optional(), // Firestore generates IDs, so this will be mainly for updates/reads
   name: z.string().min(2, "Name must be at least 2 characters"),
   phone: z.string().regex(/^\+?[0-9\s-()]{7,20}$/, "Invalid phone number format"),
   location: z.string().min(2, "Location must be at least 2 characters"),
   idNumber: z.string().optional(),
   notes: z.string().optional(),
+  joinDate: z.string(), // Keep as string for Firestore, can be converted to Date object if needed
 });
 
 export async function getFarmers(): Promise<Farmer[]> {
-  return JSON.parse(JSON.stringify(farmersStore)); // Return a copy
+  try {
+    const farmersSnapshot = await db.collection("farmers").orderBy("name").get();
+    const farmers: Farmer[] = [];
+    farmersSnapshot.forEach((doc) => {
+      farmers.push({ id: doc.id, ...doc.data() } as Farmer);
+    });
+    return farmers;
+  } catch (error) {
+    console.error("Error fetching farmers:", error);
+    return []; // Or throw error
+  }
 }
 
-export async function addFarmerAction(data: Omit<Farmer, 'id' | 'joinDate'>) {
-  const validatedData = farmerSchema.omit({ id: true }).safeParse(data);
+export async function addFarmerAction(data: Omit<Farmer, 'id'>) {
+  const validatedData = farmerSchema.omit({ id: true }).safeParse({
+    ...data,
+    joinDate: data.joinDate || new Date().toISOString().split("T")[0], // Ensure joinDate is set
+  });
+
   if (!validatedData.success) {
     return { success: false, errors: validatedData.error.flatten().fieldErrors };
   }
 
-  const newFarmer: Farmer = {
-    ...validatedData.data,
-    id: (farmersStore.length + 1).toString(), // Simple ID generation for demo
-    joinDate: new Date().toISOString().split("T")[0],
-  };
-  farmersStore.push(newFarmer);
-
-  // Add to payments tracking for the current period (example)
-  const currentPeriod = new Date().toLocaleString('default', { month: 'long', year: 'numeric' });
-  paymentsStore.push({
-    id: (paymentsStore.length + 1).toString(),
-    farmerId: newFarmer.id,
-    farmerName: newFarmer.name,
-    period: currentPeriod,
-    totalLiters: 0,
-    amountDue: 0,
-    status: 'pending',
-  });
-  
-  // Example: Send welcome notification (though not specified, good practice)
-  // Consider creating a dedicated "welcomeFarmer" Genkit flow
-  /*
   try {
-    await sendDeliveryNotification({ // This is a placeholder, use a proper welcome SMS
-        phoneNumber: newFarmer.phone,
-        quantity: 0, // Not applicable
-        quality: "", // Not applicable
-        amount: 0 // Not applicable
-        // Ideally, a welcome message would be crafted by a different flow
-    });
+    const farmerRef = await db.collection("farmers").add(validatedData.data);
+    const newFarmer = { id: farmerRef.id, ...validatedData.data };
+
+    // For now, we'll log the welcome SMS simulation. Payment record creation would be handled
+    // separately when payments are moved to Firestore.
+    console.log(`Simulated SMS to ${newFarmer.phone}: Welcome to DairyFlow, ${newFarmer.name}! Your Farmer ID is CF${newFarmer.id.substring(0,5).toUpperCase()}.`); // Using Firestore ID
+
+    revalidatePath("/farmers");
+    return { success: true, farmer: newFarmer };
   } catch (error) {
-    console.error("Failed to send welcome SMS:", error);
-    // Don't let SMS failure block farmer creation
+    console.error("Error adding farmer:", error);
+    return { success: false, errors: { _form: ["Failed to add farmer to database."] } };
   }
-  */
-  console.log(`SMS to ${newFarmer.phone}: Welcome to DairyFlow, ${newFarmer.name}! Your Farmer ID is CF${newFarmer.id.padStart(3,'0')}.`);
-
-
-  revalidatePath("/farmers");
-  return { success: true, farmer: newFarmer };
 }
 
 export async function updateFarmerAction(id: string, data: Partial<Omit<Farmer, 'id' | 'joinDate'>>) {
-  const farmerIndex = farmersStore.findIndex(f => f.id === id);
-  if (farmerIndex === -1) {
-    return { success: false, errors: { _form: ["Farmer not found"] } };
+  if (!id) {
+    return { success: false, errors: { _form: ["Farmer ID is required for update."] } };
   }
   
-  // Validate only the fields provided
-  const partialSchema = farmerSchema.partial().omit({ id: true });
+  const partialSchema = farmerSchema.partial().omit({ id: true, joinDate: true }); // joinDate usually not updated
   const validatedData = partialSchema.safeParse(data);
 
   if (!validatedData.success) {
     return { success: false, errors: validatedData.error.flatten().fieldErrors };
   }
 
-  farmersStore[farmerIndex] = { ...farmersStore[farmerIndex], ...validatedData.data };
-  
-  revalidatePath("/farmers");
-  return { success: true, farmer: farmersStore[farmerIndex] };
+  try {
+    await db.collection("farmers").doc(id).update(validatedData.data);
+    const updatedFarmerDoc = await db.collection("farmers").doc(id).get();
+    const updatedFarmer = { id: updatedFarmerDoc.id, ...updatedFarmerDoc.data() } as Farmer;
+    
+    revalidatePath("/farmers");
+    return { success: true, farmer: updatedFarmer };
+  } catch (error) {
+    console.error("Error updating farmer:", error);
+    return { success: false, errors: { _form: ["Failed to update farmer in database."] } };
+  }
 }
 
 export async function deleteFarmerAction(id: string) {
-  const initialLength = farmersStore.length;
-  farmersStore = farmersStore.filter(f => f.id !== id);
-  
-  if (farmersStore.length === initialLength) {
-     return { success: false, errors: { _form: ["Farmer not found or already deleted"] } };
+  if (!id) {
+    return { success: false, errors: { _form: ["Farmer ID is required for deletion."] } };
   }
+  try {
+    // Before deleting, check if farmer exists to provide a slightly better error if not.
+    const farmerDoc = await db.collection("farmers").doc(id).get();
+    if (!farmerDoc.exists) {
+      return { success: false, errors: { _form: ["Farmer not found."] } };
+    }
 
-  // Also remove related payments for demo purposes
-  paymentsStore = paymentsStore.filter(p => p.farmerId !== id);
+    await db.collection("farmers").doc(id).delete();
+    
+    // Note: Deleting associated payment records would now be handled in the payments/actions.ts
+    // when it's also migrated to Firestore, potentially using a batch write or by querying
+    // payments by farmerId. For now, we remove the direct manipulation of paymentsStore.
 
-  revalidatePath("/farmers");
-  revalidatePath("/payments"); // if payments are affected
-  return { success: true };
+    revalidatePath("/farmers");
+    // revalidatePath("/payments"); // Revalidate if payments were also affected
+    return { success: true };
+  } catch (error) {
+    console.error("Error deleting farmer:", error);
+    return { success: false, errors: { _form: ["Failed to delete farmer from database."] } };
+  }
 }

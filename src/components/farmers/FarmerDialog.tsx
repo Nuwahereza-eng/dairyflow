@@ -1,3 +1,4 @@
+
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -30,7 +31,7 @@ import { Loader2 } from "lucide-react";
 
 const farmerFormSchema = z.object({
   name: z.string().min(2, { message: "Name must be at least 2 characters." }),
-  phone: z.string().regex(/^\+?[0-9\s-()]{7,20}$/, { message: "Invalid phone number format. Include country code e.g. +256..." }),
+  phone: z.string().regex(/^\+[1-9]\d{7,14}$/, { message: "Phone number must be in E.164 format (e.g., +256701234567)." }),
   location: z.string().min(2, { message: "Location must be at least 2 characters." }),
   idNumber: z.string().optional(),
   notes: z.string().optional(),
@@ -87,7 +88,9 @@ export function FarmerDialog({ open, onOpenChange, farmer, onFormSubmit }: Farme
       if (farmer) {
         response = await updateFarmerAction(farmer.id, data);
       } else {
-        response = await addFarmerAction(data);
+        // For addFarmerAction, the server-side schema expects joinDate, but it's handled in the action.
+        // The client-side form doesn't need to send it explicitly if the action provides a default.
+        response = await addFarmerAction(data as Omit<Farmer, 'id' | 'joinDate'> & { joinDate?: string });
       }
 
       if (response.success) {
@@ -110,7 +113,7 @@ export function FarmerDialog({ open, onOpenChange, farmer, onFormSubmit }: Farme
         toast({
           variant: "destructive",
           title: "Operation Failed",
-          description: "Please check the form for errors.",
+          description: response.errors?._form?.join(", ") || "Please check the form for errors.",
         });
       }
     } catch (error) {
@@ -133,7 +136,7 @@ export function FarmerDialog({ open, onOpenChange, farmer, onFormSubmit }: Farme
             {farmer ? "Edit Farmer" : "Add New Farmer"}
           </DialogTitle>
           <DialogDescription>
-            {farmer ? "Update the details for this farmer." : "Enter the details for the new farmer."}
+            {farmer ? "Update the details for this farmer." : "Enter the details for the new farmer. Ensure phone number includes the country code (e.g., +256...)"}
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -157,9 +160,9 @@ export function FarmerDialog({ open, onOpenChange, farmer, onFormSubmit }: Farme
                 name="phone"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Phone Number</FormLabel>
+                    <FormLabel>Phone Number (E.164 format)</FormLabel>
                     <FormControl>
-                      <Input placeholder="e.g. +256 701 234567" {...field} />
+                      <Input placeholder="e.g. +256701234567" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

@@ -35,20 +35,7 @@ export async function sendDeliveryNotification(input: SendDeliveryNotificationIn
   return sendDeliveryNotificationFlow(input);
 }
 
-const deliveryPrompt = ai.definePrompt({
-  name: 'generateDeliverySMSPrompt',
-  input: {schema: SendDeliveryNotificationInputSchema},
-  output: { schema: z.string() }, // Explicitly expect a string output
-  prompt: `Generate an SMS for a farmer about their milk delivery.
-Delivery Details:
-- Quantity: {{quantity}}L
-- Quality: Grade {{quality}}
-- Amount: UGX {{amount}}
-
-SMS Message Template: Dear Farmer, your delivery of {{quantity}}L (Grade {{quality}}) for UGX {{amount}} is recorded. Thank you!
-
-Return ONLY the "SMS Message Template" filled with the details.`,
-});
+// Removed the AI prompt for delivery notifications. We'll use a template string.
 
 const sendDeliveryNotificationFlow = ai.defineFlow(
   {
@@ -57,20 +44,16 @@ const sendDeliveryNotificationFlow = ai.defineFlow(
     outputSchema: SendDeliveryNotificationOutputSchema,
   },
   async (input): Promise<SendDeliveryNotificationOutput> => {
-    const promptResponse = await deliveryPrompt(input);
-    const messageContent = promptResponse.output;
+    // Construct message content using a template string
+    const messageContent = `Dear Farmer, your delivery of ${input.quantity}L (Grade ${input.quality}) for UGX ${input.amount.toLocaleString()} is recorded. Thank you!`;
 
-    console.log(`Delivery SMS - Raw prompt response: ${JSON.stringify(promptResponse, null, 2)}`);
-    console.log(`Delivery SMS - Extracted messageContent from .output: "${messageContent}"`);
-    console.log(`Delivery SMS - Raw prompt response .text: "${promptResponse.text}"`);
+    console.log(`Delivery SMS - Constructed messageContent: "${messageContent}"`);
 
     if (messageContent === null || messageContent === undefined || messageContent.trim() === '') {
-      console.error("SMS Notification Error: Failed to generate message content for delivery. Model returned null or empty string.", {
+      console.error("SMS Notification Error: Failed to generate message content for delivery (template string resulted in empty).", {
         inputData: input,
-        promptOutput: messageContent, // This will be null or undefined
-        promptRawResponseText: promptResponse.text, // Log .text content
       });
-      return { success: false, statusMessage: "Failed to generate SMS content (model returned null or empty string)." };
+      return { success: false, statusMessage: "Failed to generate SMS content (template string resulted in empty)." };
     }
 
     const accountSid = process.env.TWILIO_ACCOUNT_SID;

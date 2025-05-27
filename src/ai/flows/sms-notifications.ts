@@ -14,6 +14,7 @@ import {z} from 'genkit';
 import twilio from 'twilio';
 
 const SendDeliveryNotificationInputSchema = z.object({
+  farmerName: z.string().describe("The name of the farmer."),
   phoneNumber: z.string().describe('The phone number of the farmer to send the SMS to.'),
   quantity: z.number().describe('The quantity of milk delivered in liters.'),
   quality: z.string().describe('The quality grade of the milk delivered (A, B, C).'),
@@ -35,8 +36,6 @@ export async function sendDeliveryNotification(input: SendDeliveryNotificationIn
   return sendDeliveryNotificationFlow(input);
 }
 
-// Removed the AI prompt for delivery notifications. We'll use a template string.
-
 const sendDeliveryNotificationFlow = ai.defineFlow(
   {
     name: 'sendDeliveryNotificationFlow',
@@ -44,8 +43,8 @@ const sendDeliveryNotificationFlow = ai.defineFlow(
     outputSchema: SendDeliveryNotificationOutputSchema,
   },
   async (input): Promise<SendDeliveryNotificationOutput> => {
-    // Construct message content using a template string
-    const messageContent = `Dear Farmer, your delivery of ${input.quantity}L (Grade ${input.quality}) for UGX ${input.amount.toLocaleString()} is recorded. Thank you!`;
+    // Construct message content using a template string with farmer's name
+    const messageContent = `Dear ${input.farmerName}, your delivery of ${input.quantity}L (Grade ${input.quality}) for UGX ${input.amount.toLocaleString()} is recorded. Thank you!`;
 
     console.log(`Delivery SMS - Constructed messageContent: "${messageContent}"`);
 

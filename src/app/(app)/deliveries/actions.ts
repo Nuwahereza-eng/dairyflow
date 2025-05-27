@@ -6,11 +6,11 @@ import { revalidatePath } from "next/cache";
 import type { Delivery, Farmer } from "@/types";
 import { initialDeliveries, initialFarmers, initialPayments } from "@/lib/mockData";
 import { sendDeliveryNotification } from '@/ai/flows/sms-notifications';
-import { getSystemSettings } from '@/app/(app)/settings/actions'; // Import the getter for system settings
+import { getSystemSettings } from '@/app/(app)/settings/actions'; 
 
 let deliveriesStore: Delivery[] = [...initialDeliveries];
-const farmersStore: Farmer[] = [...initialFarmers]; // Needed to get farmer phone for SMS
-let paymentsStore = [...initialPayments]; // Keep payments in sync
+const farmersStore: Farmer[] = [...initialFarmers]; 
+let paymentsStore = [...initialPayments]; 
 
 const deliverySchemaBase = z.object({
   farmerId: z.string().min(1, "Farmer selection is required"),
@@ -22,7 +22,7 @@ const deliverySchemaBase = z.object({
 });
 
 const deliverySchema = deliverySchemaBase.extend({
-  id: z.string().optional(), // Optional for creation
+  id: z.string().optional(), 
 });
 
 
@@ -36,7 +36,7 @@ async function calculateAmount(quantity: number, quality: 'A' | 'B' | 'C'): Prom
 }
 
 export async function getDeliveries(): Promise<Delivery[]> {
-  // Enrich with farmer names
+  
   return JSON.parse(JSON.stringify(deliveriesStore.map(d => {
     const farmer = farmersStore.find(f => f.id === d.farmerId);
     return { ...d, farmerName: farmer?.name || "Unknown Farmer" };
@@ -80,11 +80,12 @@ export async function recordDeliveryAction(data: Omit<Delivery, 'id' | 'amount' 
   }
 
   const farmer = farmersStore.find(f => f.id === newDelivery.farmerId);
-  const currentSystemSettings = await getSystemSettings(); // Fetch current settings
+  const currentSystemSettings = await getSystemSettings(); 
 
-  if (farmer && farmer.phone && currentSystemSettings.smsProvider !== 'none') {
+  if (farmer && farmer.name && farmer.phone && currentSystemSettings.smsProvider !== 'none') {
     try {
       const smsResult = await sendDeliveryNotification({
+        farmerName: farmer.name,
         phoneNumber: farmer.phone,
         quantity: newDelivery.quantity,
         quality: newDelivery.quality,
@@ -94,10 +95,10 @@ export async function recordDeliveryAction(data: Omit<Delivery, 'id' | 'amount' 
     } catch (error) {
       console.error("Failed to call sendDeliveryNotification flow:", error);
     }
-  } else if (farmer && farmer.phone && currentSystemSettings.smsProvider === 'none') {
-    console.log(`Simulated SMS (provider 'none'): Delivery to ${farmer.phone} for ${newDelivery.quantity}L, Grade ${newDelivery.quality}, Amount ${newDelivery.amount}. Settings:`, currentSystemSettings);
-  } else if (farmer && !farmer.phone) {
-    console.log(`SMS not sent for delivery: Farmer ${farmer.name} has no phone number.`);
+  } else if (farmer && farmer.name && farmer.phone && currentSystemSettings.smsProvider === 'none') {
+    console.log(`Simulated SMS (provider 'none'): Delivery to ${farmer.name} (${farmer.phone}) for ${newDelivery.quantity}L, Grade ${newDelivery.quality}, Amount ${newDelivery.amount}. Settings:`, currentSystemSettings);
+  } else if (farmer && (!farmer.phone || !farmer.name)) {
+    console.log(`SMS not sent for delivery: Farmer ${farmer.name || farmer.id} has missing name or phone number.`);
   } else if (!farmer) {
     console.log(`SMS not sent for delivery: Farmer with ID ${newDelivery.farmerId} not found.`);
   }

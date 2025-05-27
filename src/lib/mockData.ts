@@ -7,34 +7,34 @@ export const initialFarmers: Farmer[] = [
   { id: '3', name: 'Peter Ssali', phone: '+256703456789', location: 'Mukono', joinDate: '2024-01-20', idNumber: 'CF123458', notes: 'Large scale farmer' }
 ];
 
+// initialDeliveries and initialPayments are no longer primary sources
+// if Deliveries and Payments actions are fully migrated to Firestore.
+// Kept here for reference or if some part still uses them.
 export const initialDeliveries: Delivery[] = [
-  { id: '1', farmerId: '1', quantity: 25.5, quality: 'A', date: '2024-07-26', time: '06:30', notes: 'Good quality', amount: 30600, farmerName: 'John Mukasa' },
-  { id: '2', farmerId: '2', quantity: 18.0, quality: 'A', date: '2024-07-26', time: '07:15', notes: 'Excellent', amount: 21600, farmerName: 'Mary Nalubega' },
-  { id: '3', farmerId: '3', quantity: 32.0, quality: 'B', date: '2024-07-25', time: '06:45', notes: 'Standard quality', amount: 34560, farmerName: 'Peter Ssali' }
+  // { id: '1', farmerId: '1', quantity: 25.5, quality: 'A', date: '2024-07-26', time: '06:30', notes: 'Good quality', amount: 30600, farmerName: 'John Mukasa' },
 ];
 
 export const initialPayments: Payment[] = [
-  { id: '1', farmerId: '1', period: 'July 2024', totalLiters: 750, amountDue: 900000, status: 'pending', lastPaymentDate: '2024-06-30', farmerName: 'John Mukasa' },
-  { id: '2', farmerId: '2', period: 'July 2024', totalLiters: 540, amountDue: 648000, status: 'paid', lastPaymentDate: '2024-07-25', farmerName: 'Mary Nalubega' },
-  { id: '3', farmerId: '3', period: 'July 2024', totalLiters: 960, amountDue: 1036800, status: 'pending', lastPaymentDate: '2024-06-28', farmerName: 'Peter Ssali' }
+  // { id: '1', farmerId: '1', period: 'July 2024', totalLiters: 750, amountDue: 900000, status: 'pending', lastPaymentDate: '2024-06-30', farmerName: 'John Mukasa' },
 ];
 
 export const initialUsers: User[] = [
-  { id: '1', username: 'admin', role: 'admin', status: 'active' },
-  { id: '2', username: 'operator1', role: 'operator', status: 'active' },
-  { id: '3', username: 'farmer_john', role: 'farmer', status: 'active' },
+  { id: '1', username: 'admin', role: 'admin', status: 'active', password: 'adminpass' }, // Added mock password for consistency
+  { id: '2', username: 'operator1', role: 'operator', status: 'active', password: 'op1pass' },
+  { id: '3', username: 'farmer_john', role: 'farmer', status: 'active', password: 'farmerpass' },
 ];
 
 export const initialSystemSettings: SystemSettings = {
   milkPricePerLiter: 1200,
-  smsProvider: 'twilio', // Changed default to twilio
-  smsApiKey: '',
-  smsUsername: ''
+  smsProvider: 'twilio', 
+  smsApiKey: '', // Default to empty as these should be in .env or secure store
+  smsUsername: ''  // Default to empty
 };
 
-// Helper to get farmer name
+// Helper to get farmer name - no longer used by actions if they fetch from DB
 export const getFarmerName = (farmerId: string, farmers: Farmer[]): string => {
   const farmer = farmers.find(f => f.id === farmerId);
   return farmer ? farmer.name : 'Unknown Farmer';
 };
 
+    

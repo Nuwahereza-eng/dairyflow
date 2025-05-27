@@ -56,8 +56,8 @@ export function FarmerDialog({ open, onOpenChange, farmer, onFormSubmit }: Farme
       name: "",
       phone: "",
       location: "",
-      idNumber: "",
-      notes: "",
+      idNumber: undefined, // Default to undefined for optional fields
+      notes: undefined,    // Default to undefined for optional fields
     },
   });
 
@@ -67,16 +67,16 @@ export function FarmerDialog({ open, onOpenChange, farmer, onFormSubmit }: Farme
         name: farmer.name,
         phone: farmer.phone,
         location: farmer.location,
-        idNumber: farmer.idNumber || "",
-        notes: farmer.notes || "",
+        idNumber: farmer.idNumber, // Will be undefined if not present in Firestore data
+        notes: farmer.notes,       // Will be undefined if not present in Firestore data
       });
     } else {
-      form.reset({
+      form.reset({ // Explicitly reset to defaults for new farmer form
         name: "",
         phone: "",
         location: "",
-        idNumber: "",
-        notes: "",
+        idNumber: undefined,
+        notes: undefined,
       });
     }
   }, [farmer, form, open]);
@@ -88,8 +88,6 @@ export function FarmerDialog({ open, onOpenChange, farmer, onFormSubmit }: Farme
       if (farmer) {
         response = await updateFarmerAction(farmer.id, data);
       } else {
-        // For addFarmerAction, the server-side schema expects joinDate, but it's handled in the action.
-        // The client-side form doesn't need to send it explicitly if the action provides a default.
         response = await addFarmerAction(data as Omit<Farmer, 'id' | 'joinDate'> & { joinDate?: string });
       }
 
@@ -98,10 +96,9 @@ export function FarmerDialog({ open, onOpenChange, farmer, onFormSubmit }: Farme
           title: farmer ? "Farmer Updated" : "Farmer Added",
           description: `${data.name} has been successfully ${farmer ? 'updated' : 'added'}.`,
         });
-        onFormSubmit(); // Call parent's refresh
-        onOpenChange(false); // Close dialog
+        onFormSubmit(); 
+        onOpenChange(false); 
       } else {
-        // Handle server-side validation errors
         if (response.errors) {
           Object.entries(response.errors).forEach(([field, messages]) => {
             const fieldName = field as keyof FarmerFormData;
@@ -189,7 +186,7 @@ export function FarmerDialog({ open, onOpenChange, farmer, onFormSubmit }: Farme
                 <FormItem>
                   <FormLabel>ID Number (Optional)</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g. CF123456" {...field} />
+                    <Input placeholder="e.g. CF123456" {...field} value={field.value ?? ''} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -202,7 +199,7 @@ export function FarmerDialog({ open, onOpenChange, farmer, onFormSubmit }: Farme
                 <FormItem>
                   <FormLabel>Additional Notes (Optional)</FormLabel>
                   <FormControl>
-                    <Textarea placeholder="Any relevant notes about the farmer" {...field} rows={3} />
+                    <Textarea placeholder="Any relevant notes about the farmer" {...field} value={field.value ?? ''} rows={3} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

@@ -3,79 +3,125 @@
 
 import { revalidatePath } from "next/cache";
 import type { Payment, Farmer } from "@/types";
-import { initialPayments, initialFarmers } from "@/lib/mockData";
+import { db } from "@/lib/firebaseAdmin";
 import { sendPaymentNotification } from '@/ai/flows/payment-notification';
-import { getSystemSettings } from '@/app/(app)/settings/actions'; // Import the getter for system settings
-
-let paymentsStore: Payment[] = [...initialPayments];
-const farmersStore: Farmer[] = [...initialFarmers]; // Needed for farmer details
+import { getSystemSettings } from '@/app/(app)/settings/actions';
 
 export async function getPayments(): Promise<Payment[]> {
-  // Enrich with farmer names
-  return JSON.parse(JSON.stringify(paymentsStore.map(p => {
-    const farmer = farmersStore.find(f => f.id === p.farmerId);
-    return { ...p, farmerName: farmer?.name || "Unknown Farmer" };
-  })));
+  try {
+    const paymentsSnapshot = await db.collection("payments").get(); // Consider ordering later if needed
+    const payments: Payment[] = [];
+    for (const doc of paymentsSnapshot.docs) {
+      const paymentData = doc.data() as Omit<Payment, 'id' | 'farmerName'>;
+      let farmerName = "Unknown Farmer";
+      if (paymentData.farmerId) {
+        const farmerDoc = await db.collection("farmers").doc(paymentData.farmerId).get();
+        if (farmerDoc.exists) {
+          farmerName = (farmerDoc.data() as Farmer).name;
+        }
+      }
+      payments.push({ 
+        id: doc.id, 
+        ...paymentData,
+        farmerName 
+      });
+    }
+    // You might want to sort payments here, e.g., by period or farmerName
+    // payments.sort((a, b) => (a.period > b.period ? -1 : 1) || (a.farmerName?.localeCompare(b.farmerName || '') || 0) );
+    return payments;
+  } catch (error) {
+    console.error("Error fetching payments:", error);
+    throw error; // Rethrow or handle as appropriate for your UI
+  }
 }
 
 export async function processSinglePaymentAction(paymentId: string): Promise<{ success: boolean; message?: string }> {
-  const paymentIndex = paymentsStore.findIndex(p => p.id === paymentId);
-  if (paymentIndex === -1) {
-    return { success: false, message: "Payment record not found." };
-  }
-  if (paymentsStore[paymentIndex].status === 'paid') {
-    return { success: false, message: "Payment already processed." };
-  }
-
-  paymentsStore[paymentIndex].status = 'paid';
-  paymentsStore[paymentIndex].lastPaymentDate = new Date().toISOString().split("T")[0];
-
-  const payment = paymentsStore[paymentIndex];
-  const farmer = farmersStore.find(f => f.id === payment.farmerId);
-  const currentSystemSettings = await getSystemSettings(); // Fetch current settings
-
-  if (farmer && farmer.phone && currentSystemSettings.smsProvider !== 'none') {
-    try {
-      const smsResult = await sendPaymentNotification({
-        phoneNumber: farmer.phone,
-        amount: payment.amountDue,
-        period: payment.period,
-      });
-      console.log("Payment SMS Notification Result for single payment:", smsResult);
-    } catch (error) {
-      console.error("Failed to call sendPaymentNotification flow for single payment:", error);
+  const paymentRef = db.collection("payments").doc(paymentId);
+  try {
+    const paymentDoc = await paymentRef.get();
+    if (!paymentDoc.exists) {
+      return { success: false, message: "Payment record not found in Firestore." };
     }
-  } else if (farmer && farmer.phone && currentSystemSettings.smsProvider === 'none') {
-    console.log(`Simulated SMS (provider 'none'): Payment to ${farmer.phone} of UGX ${payment.amountDue} for ${payment.period}. Settings:`, currentSystemSettings);
-  } else if (farmer && !farmer.phone) {
-    console.log(`SMS not sent for payment: Farmer ${farmer.name} has no phone number.`);
-  } else if (!farmer) {
-    console.log(`SMS not sent for payment: Farmer with ID ${payment.farmerId} not found.`);
+
+    const payment = { id: paymentDoc.id, ...paymentDoc.data() } as Payment;
+    if (payment.status === 'paid') {
+      return { success: false, message: "Payment already processed." };
+    }
+
+    await paymentRef.update({
+      status: 'paid',
+      lastPaymentDate: new Date().toISOString().split("T")[0],
+    });
+
+    let farmer: Farmer | null = null;
+    if (payment.farmerId) {
+        const farmerDoc = await db.collection("farmers").doc(payment.farmerId).get();
+        if (farmerDoc.exists) {
+            farmer = {id: farmerDoc.id, ...farmerDoc.data()} as Farmer;
+        }
+    }
+    
+    const currentSystemSettings = await getSystemSettings();
+
+    if (farmer && farmer.phone && currentSystemSettings.smsProvider !== 'none') {
+      try {
+        const smsResult = await sendPaymentNotification({
+          phoneNumber: farmer.phone,
+          amount: payment.amountDue,
+          period: payment.period,
+        });
+        console.log("Payment SMS Notification Result for single payment:", smsResult);
+      } catch (error) {
+        console.error("Failed to call sendPaymentNotification flow for single payment:", error);
+      }
+    } else if (farmer && farmer.phone && currentSystemSettings.smsProvider === 'none') {
+      console.log(`Simulated SMS (provider 'none'): Payment to ${farmer.phone} of UGX ${payment.amountDue} for ${payment.period}.`);
+    } else if (farmer && !farmer.phone) {
+      console.log(`SMS not sent for payment: Farmer ${farmer.name || farmer.id} has no E.164 phone number.`);
+    } else if (!farmer) {
+      console.log(`SMS not sent for payment: Farmer with ID ${payment.farmerId} not found.`);
+    }
+
+    revalidatePath("/payments");
+    revalidatePath("/dashboard");
+    return { success: true, message: `Payment for ${farmer?.name || 'farmer ' + payment.farmerId} processed.` };
+  } catch (error) {
+    console.error("Error processing single payment:", error);
+    return { success: false, message: "Failed to process payment due to a server error." };
   }
-
-
-  revalidatePath("/payments");
-  revalidatePath("/dashboard"); 
-  return { success: true, message: `Payment for ${farmer?.name || 'farmer'} processed.` };
 }
 
 export async function processAllPendingPaymentsAction(): Promise<{ success: boolean; count: number; message?: string }> {
-  const pendingPayments = paymentsStore.filter(p => p.status === 'pending');
-  if (pendingPayments.length === 0) {
-    return { success: false, count: 0, message: "No pending payments to process." };
-  }
+  try {
+    // This query will likely require a composite index on 'status'.
+    // Firestore will provide an error with a link to create it if it's missing.
+    const pendingPaymentsSnapshot = await db.collection("payments").where("status", "==", "pending").get();
+    
+    if (pendingPaymentsSnapshot.empty) {
+      return { success: false, count: 0, message: "No pending payments to process." };
+    }
 
-  const currentSystemSettings = await getSystemSettings(); // Fetch current settings once
-  let processedCount = 0;
+    const currentSystemSettings = await getSystemSettings();
+    let processedCount = 0;
 
-  for (const payment of pendingPayments) {
-    const paymentIndex = paymentsStore.findIndex(p => p.id === payment.id);
-    if (paymentIndex !== -1) {
-      paymentsStore[paymentIndex].status = 'paid';
-      paymentsStore[paymentIndex].lastPaymentDate = new Date().toISOString().split("T")[0];
+    for (const doc of pendingPaymentsSnapshot.docs) {
+      const payment = { id: doc.id, ...doc.data() } as Payment;
+      const paymentRef = db.collection("payments").doc(doc.id);
+
+      await paymentRef.update({
+        status: 'paid',
+        lastPaymentDate: new Date().toISOString().split("T")[0],
+      });
       processedCount++;
 
-      const farmer = farmersStore.find(f => f.id === payment.farmerId);
+      let farmer: Farmer | null = null;
+      if (payment.farmerId) {
+          const farmerDoc = await db.collection("farmers").doc(payment.farmerId).get();
+          if (farmerDoc.exists) {
+              farmer = {id: farmerDoc.id, ...farmerDoc.data()} as Farmer;
+          }
+      }
+
       if (farmer && farmer.phone && currentSystemSettings.smsProvider !== 'none') {
         try {
           const smsResult = await sendPaymentNotification({
@@ -83,21 +129,28 @@ export async function processAllPendingPaymentsAction(): Promise<{ success: bool
             amount: payment.amountDue,
             period: payment.period,
           });
-           console.log(`Payment SMS Notification Result for ${farmer.name || 'farmer ' + farmer.id}:`, smsResult); 
+          console.log(`Payment SMS Notification Result for ${farmer.name || 'farmer ' + farmer.id}:`, smsResult);
         } catch (error) {
           console.error(`Failed to call sendPaymentNotification flow for ${farmer.name || 'farmer ' + farmer.id}:`, error);
         }
       } else if (farmer && farmer.phone && currentSystemSettings.smsProvider === 'none') {
-         console.log(`Simulated SMS (provider 'none'): Payment to ${farmer.phone} of UGX ${payment.amountDue} for ${payment.period}. Settings:`, currentSystemSettings);
+        console.log(`Simulated SMS (provider 'none'): Payment to ${farmer.phone} of UGX ${payment.amountDue} for ${payment.period}.`);
       } else if (farmer && !farmer.phone) {
-        console.log(`SMS not sent for payment (batch): Farmer ${farmer.name} has no phone number.`);
+        console.log(`SMS not sent for payment (batch): Farmer ${farmer.name || farmer.id} has no E.164 phone number.`);
       } else if (!farmer) {
         console.log(`SMS not sent for payment (batch): Farmer with ID ${payment.farmerId} not found.`);
       }
     }
-  }
 
-  revalidatePath("/payments");
-  revalidatePath("/dashboard");
-  return { success: true, count: processedCount, message: `${processedCount} payments processed.` };
+    revalidatePath("/payments");
+    revalidatePath("/dashboard");
+    return { success: true, count: processedCount, message: `${processedCount} payments processed.` };
+  } catch (error: any) {
+    console.error("Error processing all pending payments:", error);
+    if (error.code === 9 /* FAILED_PRECONDITION for missing index */) {
+         return { success: false, count: 0, message: `Query requires an index. Please create it in Firestore. Details: ${error.details || error.message}` };
+    }
+    return { success: false, count: 0, message: "Failed to process payments due to a server error." };
+  }
 }
+

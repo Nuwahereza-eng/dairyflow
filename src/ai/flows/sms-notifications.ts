@@ -39,7 +39,15 @@ const deliveryPrompt = ai.definePrompt({
   name: 'generateDeliverySMSPrompt',
   input: {schema: SendDeliveryNotificationInputSchema},
   output: { schema: z.string() }, // Explicitly expect a string output
-  prompt: `Dear Farmer, your delivery of {{quantity}}L (Grade {{quality}}) for UGX {{amount}} is recorded. Thank you!`,
+  prompt: `Generate an SMS for a farmer about their milk delivery.
+Delivery Details:
+- Quantity: {{quantity}}L
+- Quality: Grade {{quality}}
+- Amount: UGX {{amount}}
+
+SMS Message Template: Dear Farmer, your delivery of {{quantity}}L (Grade {{quality}}) for UGX {{amount}} is recorded. Thank you!
+
+Return ONLY the "SMS Message Template" filled with the details.`,
 });
 
 const sendDeliveryNotificationFlow = ai.defineFlow(
@@ -49,12 +57,20 @@ const sendDeliveryNotificationFlow = ai.defineFlow(
     outputSchema: SendDeliveryNotificationOutputSchema,
   },
   async (input): Promise<SendDeliveryNotificationOutput> => {
-    // Use 'output' which corresponds to the defined output schema
-    const { output: messageContent } = await deliveryPrompt(input);
+    const promptResponse = await deliveryPrompt(input);
+    const messageContent = promptResponse.output;
 
-    if (!messageContent) {
-      console.error("SMS Notification Error: Failed to generate message content for delivery. Received null or empty.", input);
-      return { success: false, statusMessage: "Failed to generate SMS content (received null/empty)." };
+    console.log(`Delivery SMS - Raw prompt response: ${JSON.stringify(promptResponse, null, 2)}`);
+    console.log(`Delivery SMS - Extracted messageContent from .output: "${messageContent}"`);
+    console.log(`Delivery SMS - Raw prompt response .text: "${promptResponse.text}"`);
+
+    if (messageContent === null || messageContent === undefined || messageContent.trim() === '') {
+      console.error("SMS Notification Error: Failed to generate message content for delivery. Model returned null or empty string.", {
+        inputData: input,
+        promptOutput: messageContent, // This will be null or undefined
+        promptRawResponseText: promptResponse.text, // Log .text content
+      });
+      return { success: false, statusMessage: "Failed to generate SMS content (model returned null or empty string)." };
     }
 
     const accountSid = process.env.TWILIO_ACCOUNT_SID;

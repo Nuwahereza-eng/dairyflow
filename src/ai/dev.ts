@@ -14,10 +14,10 @@ import '@/ai/flows/payment-notification.ts';
 // 4. Check the console output for success.
 // 5. After successful execution, REMOVE OR COMMENT OUT this entire script block.
 (async () => {
-  const userUID = 'USER_UID_TO_SET_ADMIN_CLAIM'; // <--- !!! PASTE THE UID HERE !!!
+  const userUID = 'A54rWWPfcVhDwcDekfznY55m1dr1'; // <--- !!! PASTE THE UID HERE !!!
   const desiredRole = 'admin';
 
-  if (userUID === 'USER_UID_TO_SET_ADMIN_CLAIM') {
+  if (userUID === 'A54rWWPfcVhDwcDekfznY55m1dr1') {
     console.warn(
       '\n[Custom Claim Script] SKIPPING: Please replace "USER_UID_TO_SET_ADMIN_CLAIM" in src/ai/dev.ts with the actual User UID.\n'
     );

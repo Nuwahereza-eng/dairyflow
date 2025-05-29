@@ -9,15 +9,29 @@ import { getFirestore } from "firebase/firestore";
 let firebaseConfig: FirebaseOptions;
 
 try {
-  if (!process.env.NEXT_PUBLIC_FIREBASE_CONFIG) {
-    throw new Error("NEXT_PUBLIC_FIREBASE_CONFIG is not set in .env file. This is required for client-side Firebase initialization.");
+  const rawFirebaseConfig = process.env.NEXT_PUBLIC_FIREBASE_CONFIG;
+  // This log will appear in your SERVER terminal when the app starts or a page is server-rendered
+  console.log(
+    "SERVER LOG: Attempting to parse NEXT_PUBLIC_FIREBASE_CONFIG. Raw value:",
+    rawFirebaseConfig
+  );
+
+  if (!rawFirebaseConfig) {
+    throw new Error(
+      "NEXT_PUBLIC_FIREBASE_CONFIG is not set in .env file. This is required for client-side Firebase initialization."
+    );
   }
-  firebaseConfig = JSON.parse(process.env.NEXT_PUBLIC_FIREBASE_CONFIG);
+  firebaseConfig = JSON.parse(rawFirebaseConfig);
 } catch (error) {
-  console.error("Failed to parse NEXT_PUBLIC_FIREBASE_CONFIG. Ensure it's a valid JSON string in your .env file.", error);
-  // Provide a fallback or throw to prevent app from running with misconfigured Firebase
-  // For now, let's throw to make the issue obvious during development.
-  throw new Error("Firebase configuration error: Could not parse NEXT_PUBLIC_FIREBASE_CONFIG.");
+  // This console.error will appear in your SERVER terminal if parsing fails
+  console.error(
+    "SERVER LOG: Failed to parse NEXT_PUBLIC_FIREBASE_CONFIG. Ensure it's a valid JSON string in your .env file.",
+    "\nRaw value attempted to parse:", process.env.NEXT_PUBLIC_FIREBASE_CONFIG,
+    "\nOriginal parsing error:", error
+  );
+  throw new Error(
+    "Firebase configuration error: Could not parse NEXT_PUBLIC_FIREBASE_CONFIG."
+  );
 }
 
 
@@ -25,8 +39,10 @@ try {
 let app;
 if (!getApps().length) {
   app = initializeApp(firebaseConfig);
+  console.log("Firebase client app initialized successfully.");
 } else {
   app = getApp();
+  console.log("Firebase client app already initialized.");
 }
 
 const auth = getAuth(app);

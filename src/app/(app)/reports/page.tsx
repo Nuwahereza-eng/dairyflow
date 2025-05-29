@@ -20,7 +20,11 @@ import { Download, FileText, Loader2, UserSearch } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { Delivery, Farmer } from "@/types";
 import { format } from 'date-fns';
+import jsPDF from 'jspdf'; // Static import
+import 'jspdf-autotable'; // Static import for side-effects
 
+// This declaration augments the existing jsPDF type from 'jspdf'
+// to include the autoTable method.
 declare module 'jspdf' {
   interface jsPDF {
     autoTable: (options: any) => jsPDF;
@@ -89,88 +93,84 @@ const exportToPDF = async () => {
     return;
   }
 
-  const jsPDFModule = await import('jspdf');
-  const autoTableModule = await import('jspdf-autotable');
-  const jsPDF = jsPDFModule.default;
-  // No need to call autoTableModule.default(jsPDF), doc.autoTable will work as expected
+  // jsPDF and autoTable are now imported statically at the top
+  const doc = new jsPDF();
+  const reportTitle = reportType.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+  const periodString = `Period: ${startDate ? format(new Date(startDate+"T00:00:00"),'PP') : 'Start'} to ${endDate ? format(new Date(endDate+"T00:00:00"),'PP') : 'End'}`;
+  const fileName = `${reportType}_report_${new Date().toISOString().split('T')[0]}.pdf`;
+  let yPos = 20;
 
-    const doc = new jsPDF();
-    const reportTitle = reportType.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-    const periodString = `Period: ${startDate ? format(new Date(startDate+"T00:00:00"),'PP') : 'Start'} to ${endDate ? format(new Date(endDate+"T00:00:00"),'PP') : 'End'}`;
-    const fileName = `${reportType}_report_${new Date().toISOString().split('T')[0]}.pdf`;
-    let yPos = 20;
+  doc.setFontSize(16);
+  doc.text(reportTitle, 14, yPos);
+  yPos += 7;
+  doc.setFontSize(10);
+  doc.text(periodString, 14, yPos);
+  yPos += 10;
 
-    doc.setFontSize(16);
-    doc.text(reportTitle, 14, yPos);
-    yPos += 7;
-    doc.setFontSize(10);
-    doc.text(periodString, 14, yPos);
-    yPos += 10;
-
-    if (reportType === 'farmer_statement' && reportData.farmerDetails) {
-        doc.setFontSize(12);
-        doc.text(`Statement for: ${reportData.farmerDetails.name}`, 14, yPos); yPos += 7;
-        doc.setFontSize(10);
-        doc.text(`Farmer ID: ${reportData.farmerDetails.id}`, 14, yPos); yPos += 5;
-        doc.text(`Phone: ${reportData.farmerDetails.phone || 'N/A'}`, 14, yPos); yPos += 5;
-        doc.text(`Location: ${reportData.farmerDetails.location || 'N/A'}`, 14, yPos); yPos += 10;
-        
-        const head = [["Date", "Time", "Qty (L)", "Quality", "Amount (UGX)"]];
-        const body = reportData.deliveries.map((d: Delivery) => [
-            format(new Date(d.date + 'T00:00:00'), 'PP'),
-            d.time,
-            (d.quantity || 0).toFixed(1),
-            d.quality,
-            (d.amount || 0).toLocaleString()
-        ]);
-        doc.autoTable({ head, body, startY: yPos });
-        yPos = (doc as any).lastAutoTable.finalY + 10; // Get position after table
-        doc.text(`Total Liters Delivered: ${(reportData.totalLitersDelivered || 0).toFixed(1)} L`, 14, yPos); yPos +=7;
-        doc.text(`Total Value of Deliveries: UGX ${(reportData.totalAmountForDeliveries || 0).toLocaleString()}`, 14, yPos);
-
-    } else if (reportType === 'daily' && reportData.deliveries) {
-      const head = [["Date", "Time", "Farmer", "Qty (L)", "Quality", "Amount (UGX)"]];
+  if (reportType === 'farmer_statement' && reportData.farmerDetails) {
+      doc.setFontSize(12);
+      doc.text(`Statement for: ${reportData.farmerDetails.name}`, 14, yPos); yPos += 7;
+      doc.setFontSize(10);
+      doc.text(`Farmer ID: CF${reportData.farmerDetails.id.substring(0,5).toUpperCase()}`, 14, yPos); yPos += 5; // Using substring for farmer ID for PDF
+      doc.text(`Phone: ${reportData.farmerDetails.phone || 'N/A'}`, 14, yPos); yPos += 5;
+      doc.text(`Location: ${reportData.farmerDetails.location || 'N/A'}`, 14, yPos); yPos += 10;
+      
+      const head = [["Date", "Time", "Qty (L)", "Quality", "Amount (UGX)"]];
       const body = reportData.deliveries.map((d: Delivery) => [
-        format(new Date(d.date + 'T00:00:00'), 'PP'),
-        d.time,
-        d.farmerName || "N/A",
-        (d.quantity || 0).toFixed(1),
-        d.quality,
-        (d.amount || 0).toLocaleString()
+          format(new Date(d.date + 'T00:00:00'), 'PP'),
+          d.time,
+          (d.quantity || 0).toFixed(1),
+          d.quality,
+          (d.amount || 0).toLocaleString()
       ]);
       doc.autoTable({ head, body, startY: yPos });
-    } else if (reportType === 'farmer' && reportData.farmersData) {
-      const head = [["Farmer Name", "Deliveries", "Total Liters (L)", "Amount Due (UGX)"]];
-      const body = reportData.farmersData.map((f: any) => [
-        f.farmerName,
-        f.deliveriesCount || 0,
-        (f.totalLiters || 0).toFixed(1),
-        (f.amountDue || 0).toLocaleString()
-      ]);
-      doc.autoTable({ head, body, startY: yPos });
-    } else if (reportType === 'monthly' && reportData) {
-       doc.setFontSize(12);
-       doc.text("Summary:", 14, yPos); yPos += 7;
-       doc.setFontSize(10);
-       doc.text(`Total Deliveries: ${(reportData.totalDeliveries || 0).toLocaleString()}`, 14, yPos); yPos += 7;
-       doc.text(`Grade A Deliveries: ${(reportData.gradeACount || 0).toLocaleString()} (${(reportData.gradeALiters || 0).toFixed(1)} L)`, 14, yPos); yPos += 7;
-       doc.text(`Grade B Deliveries: ${(reportData.gradeBCount || 0).toLocaleString()} (${(reportData.gradeBLiters || 0).toFixed(1)} L)`, 14, yPos); yPos += 7;
-       doc.text(`Grade C Deliveries: ${(reportData.gradeCCount || 0).toLocaleString()} (${(reportData.gradeCLiters || 0).toFixed(1)} L)`, 14, yPos);
-    } else if (reportType === 'quality' && reportData) {
-       doc.setFontSize(12);
-       doc.text("Quality Analysis:", 14, yPos); yPos += 7;
-       doc.setFontSize(10);
-       doc.text(`Total Liters Analyzed: ${(reportData.totalLiters || 0).toFixed(1)} L`, 14, yPos); yPos += 7;
-       doc.text(`Grade A: ${(reportData.gradeALiters || 0).toFixed(1)} L (${(reportData.gradeAPercentage || 0).toFixed(1)}%)`, 14, yPos); yPos += 7;
-       doc.text(`Grade B: ${(reportData.gradeBLiters || 0).toFixed(1)} L (${(reportData.gradeBPercentage || 0).toFixed(1)}%)`, 14, yPos); yPos += 7;
-       doc.text(`Grade C: ${(reportData.gradeCLiters || 0).toFixed(1)} L (${(reportData.gradeCPercentage || 0).toFixed(1)}%)`, 14, yPos); yPos += 7;
-       doc.text(`Overall Quality Score: ${(reportData.qualityScore || 0).toFixed(1)}%`, 14, yPos);
-    } else {
-       doc.text("No data available for this report type or export not fully supported.", 14, yPos);
-    }
-    
-    doc.save(fileName);
-  };
+      yPos = (doc as any).lastAutoTable.finalY + 10; // Get position after table
+      doc.text(`Total Liters Delivered: ${(reportData.totalLitersDelivered || 0).toFixed(1)} L`, 14, yPos); yPos +=7;
+      doc.text(`Total Value of Deliveries: UGX ${(reportData.totalAmountForDeliveries || 0).toLocaleString()}`, 14, yPos);
+
+  } else if (reportType === 'daily' && reportData.deliveries) {
+    const head = [["Date", "Time", "Farmer", "Qty (L)", "Quality", "Amount (UGX)"]];
+    const body = reportData.deliveries.map((d: Delivery) => [
+      format(new Date(d.date + 'T00:00:00'), 'PP'),
+      d.time,
+      d.farmerName || "N/A",
+      (d.quantity || 0).toFixed(1),
+      d.quality,
+      (d.amount || 0).toLocaleString()
+    ]);
+    doc.autoTable({ head, body, startY: yPos });
+  } else if (reportType === 'farmer' && reportData.farmersData) {
+    const head = [["Farmer Name", "Deliveries", "Total Liters (L)", "Amount Due (UGX)"]];
+    const body = reportData.farmersData.map((f: any) => [
+      f.farmerName,
+      f.deliveriesCount || 0,
+      (f.totalLiters || 0).toFixed(1),
+      (f.amountDue || 0).toLocaleString()
+    ]);
+    doc.autoTable({ head, body, startY: yPos });
+  } else if (reportType === 'monthly' && reportData) {
+     doc.setFontSize(12);
+     doc.text("Summary:", 14, yPos); yPos += 7;
+     doc.setFontSize(10);
+     doc.text(`Total Deliveries: ${(reportData.totalDeliveries || 0).toLocaleString()}`, 14, yPos); yPos += 7;
+     doc.text(`Grade A Deliveries: ${(reportData.gradeACount || 0).toLocaleString()} (${(reportData.gradeALiters || 0).toFixed(1)} L)`, 14, yPos); yPos += 7;
+     doc.text(`Grade B Deliveries: ${(reportData.gradeBCount || 0).toLocaleString()} (${(reportData.gradeBLiters || 0).toFixed(1)} L)`, 14, yPos); yPos += 7;
+     doc.text(`Grade C Deliveries: ${(reportData.gradeCCount || 0).toLocaleString()} (${(reportData.gradeCLiters || 0).toFixed(1)} L)`, 14, yPos);
+  } else if (reportType === 'quality' && reportData) {
+     doc.setFontSize(12);
+     doc.text("Quality Analysis:", 14, yPos); yPos += 7;
+     doc.setFontSize(10);
+     doc.text(`Total Liters Analyzed: ${(reportData.totalLiters || 0).toFixed(1)} L`, 14, yPos); yPos += 7;
+     doc.text(`Grade A: ${(reportData.gradeALiters || 0).toFixed(1)} L (${(reportData.gradeAPercentage || 0).toFixed(1)}%)`, 14, yPos); yPos += 7;
+     doc.text(`Grade B: ${(reportData.gradeBLiters || 0).toFixed(1)} L (${(reportData.gradeBPercentage || 0).toFixed(1)}%)`, 14, yPos); yPos += 7;
+     doc.text(`Grade C: ${(reportData.gradeCLiters || 0).toFixed(1)} L (${(reportData.gradeCPercentage || 0).toFixed(1)}%)`, 14, yPos); yPos += 7;
+     doc.text(`Overall Quality Score: ${(reportData.qualityScore || 0).toFixed(1)}%`, 14, yPos);
+  } else {
+     doc.text("No data available for this report type or export not fully supported.", 14, yPos);
+  }
+  
+  doc.save(fileName);
+};
 
   return (
     <div className="space-y-6">
@@ -262,3 +262,5 @@ const exportToPDF = async () => {
     </div>
   );
 }
+
+    

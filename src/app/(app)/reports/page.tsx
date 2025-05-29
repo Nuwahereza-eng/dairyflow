@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,38 +15,61 @@ import {
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ReportDisplay } from "@/components/reports/ReportDisplay";
-import { generateReportData } from "./actions";
-import { Download, FileText, Loader2 } from "lucide-react";
+import { generateReportData, getReportFarmers } from "./actions";
+import { Download, FileText, Loader2, UserSearch } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import jsPDF from 'jspdf';
-import 'jspdf-autotable'; // Ensure this import is present for the autoTable plugin
-import type { Delivery } from "@/types"; // For typing reportData if needed
+import 'jspdf-autotable';
+import type { Delivery, Farmer } from "@/types";
 import { format } from 'date-fns';
 
-// Extend jsPDF with autoTable - this is usually done by importing 'jspdf-autotable'
 declare module 'jspdf' {
   interface jsPDF {
     autoTable: (options: any) => jsPDF;
   }
 }
 
+type ReportType = 'daily' | 'farmer' | 'monthly' | 'quality' | 'farmer_statement' | '';
+
+
 export default function ReportsPage() {
-  const [reportType, setReportType] = useState<'daily' | 'farmer' | 'monthly' | 'quality' | ''>('');
+  const [reportType, setReportType] = useState<ReportType>('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [reportData, setReportData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [farmers, setFarmers] = useState<Pick<Farmer, 'id' | 'name'>[]>([]);
+  const [selectedFarmerForStatement, setSelectedFarmerForStatement] = useState<string>('');
+
   const { toast } = useToast();
+
+  const fetchFarmersForSelect = useCallback(async () => {
+    try {
+      const farmersData = await getReportFarmers();
+      setFarmers(farmersData);
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: "Could not load farmers for selection."});
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    fetchFarmersForSelect();
+  }, [fetchFarmersForSelect]);
 
   const handleGenerateReport = async () => {
     if (!reportType) {
       toast({ variant: "destructive", title: "Error", description: "Please select a report type." });
       return;
     }
+    if (reportType === 'farmer_statement' && !selectedFarmerForStatement) {
+      toast({ variant: "destructive", title: "Error", description: "Please select a farmer for the statement." });
+      return;
+    }
+
     setIsLoading(true);
     setReportData(null);
     try {
-      const data = await generateReportData(reportType, startDate, endDate);
+      const data = await generateReportData(reportType as NonNullable<ReportType>, startDate, endDate, selectedFarmerForStatement);
       if (data && 'error' in data && data.error) {
         toast({ variant: "destructive", title: "Report Generation Failed", description: data.error });
         setReportData(null);
@@ -69,19 +92,40 @@ export default function ReportsPage() {
     }
 
     const doc = new jsPDF();
+    const reportTitle = reportType.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
     const periodString = `Period: ${startDate ? format(new Date(startDate+"T00:00:00"),'PP') : 'Start'} to ${endDate ? format(new Date(endDate+"T00:00:00"),'PP') : 'End'}`;
     const fileName = `${reportType}_report_${new Date().toISOString().split('T')[0]}.pdf`;
-    let yPos = 20; // Initial Y position for text
+    let yPos = 20;
 
     doc.setFontSize(16);
-    doc.text(reportType.charAt(0).toUpperCase() + reportType.slice(1) + " Report", 14, yPos);
+    doc.text(reportTitle, 14, yPos);
     yPos += 7;
     doc.setFontSize(10);
     doc.text(periodString, 14, yPos);
     yPos += 10;
 
+    if (reportType === 'farmer_statement' && reportData.farmerDetails) {
+        doc.setFontSize(12);
+        doc.text(`Statement for: ${reportData.farmerDetails.name}`, 14, yPos); yPos += 7;
+        doc.setFontSize(10);
+        doc.text(`Farmer ID: ${reportData.farmerDetails.id}`, 14, yPos); yPos += 5;
+        doc.text(`Phone: ${reportData.farmerDetails.phone || 'N/A'}`, 14, yPos); yPos += 5;
+        doc.text(`Location: ${reportData.farmerDetails.location || 'N/A'}`, 14, yPos); yPos += 10;
+        
+        const head = [["Date", "Time", "Qty (L)", "Quality", "Amount (UGX)"]];
+        const body = reportData.deliveries.map((d: Delivery) => [
+            format(new Date(d.date + 'T00:00:00'), 'PP'),
+            d.time,
+            (d.quantity || 0).toFixed(1),
+            d.quality,
+            (d.amount || 0).toLocaleString()
+        ]);
+        doc.autoTable({ head, body, startY: yPos });
+        yPos = (doc as any).lastAutoTable.finalY + 10; // Get position after table
+        doc.text(`Total Liters Delivered: ${(reportData.totalLitersDelivered || 0).toFixed(1)} L`, 14, yPos); yPos +=7;
+        doc.text(`Total Value of Deliveries: UGX ${(reportData.totalAmountForDeliveries || 0).toLocaleString()}`, 14, yPos);
 
-    if (reportType === 'daily' && reportData.deliveries) {
+    } else if (reportType === 'daily' && reportData.deliveries) {
       const head = [["Date", "Time", "Farmer", "Qty (L)", "Quality", "Amount (UGX)"]];
       const body = reportData.deliveries.map((d: Delivery) => [
         format(new Date(d.date + 'T00:00:00'), 'PP'),
@@ -137,17 +181,18 @@ export default function ReportsPage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-end">
             <div>
               <Label htmlFor="reportType">Report Type</Label>
-              <Select value={reportType} onValueChange={(value) => setReportType(value as any)}>
+              <Select value={reportType} onValueChange={(value) => setReportType(value as ReportType)}>
                 <SelectTrigger id="reportType" className="mt-1">
                   <SelectValue placeholder="Select report type" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="daily">Daily Collection</SelectItem>
                   <SelectItem value="farmer">Farmer Payments</SelectItem>
-                  <SelectItem value="monthly">Monthly Summary</SelectItem>
+                  <SelectItem value="farmer_statement">Farmer Statement</SelectItem>
+                  <SelectItem value="monthly">Period Summary</SelectItem>
                   <SelectItem value="quality">Quality Analysis</SelectItem>
                 </SelectContent>
               </Select>
@@ -172,16 +217,34 @@ export default function ReportsPage() {
                 className="mt-1"
               />
             </div>
-            <div className="flex gap-2">
-              <Button onClick={handleGenerateReport} disabled={isLoading || !reportType} className="w-full shadow-md">
+          </div>
+          {reportType === 'farmer_statement' && (
+            <div className="mt-4">
+              <Label htmlFor="farmerForStatement">Select Farmer</Label>
+              <Select value={selectedFarmerForStatement} onValueChange={setSelectedFarmerForStatement}>
+                <SelectTrigger id="farmerForStatement" className="mt-1">
+                   <UserSearch className="mr-2 h-4 w-4 text-muted-foreground" />
+                  <SelectValue placeholder="Choose farmer for statement..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {farmers.map(farmer => (
+                    <SelectItem key={farmer.id} value={farmer.id}>
+                      {farmer.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+           <div className="flex justify-end gap-2 pt-4">
+              <Button onClick={handleGenerateReport} disabled={isLoading || !reportType || (reportType === 'farmer_statement' && !selectedFarmerForStatement)} className="min-w-[150px] shadow-md">
                 {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Generate Report
               </Button>
-              <Button onClick={exportToPDF} variant="outline" disabled={!reportData || (reportData && 'error' in reportData && reportData.error)} className="w-full shadow-md">
+              <Button onClick={exportToPDF} variant="outline" disabled={!reportData || (reportData && 'error' in reportData && reportData.error)} className="min-w-[150px] shadow-md">
                  <Download className="mr-2 h-4 w-4" /> Export PDF
               </Button>
             </div>
-          </div>
         </CardContent>
       </Card>
 

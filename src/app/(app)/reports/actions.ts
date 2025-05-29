@@ -3,14 +3,14 @@
 
 import type { Delivery, Farmer } from "@/types";
 import { db } from "@/lib/firebaseAdmin";
-import { getSystemSettings } from '@/app/(app)/settings/actions'; // For milk price if needed
+// import { getSystemSettings } from '@/app/(app)/settings/actions'; // For milk price if needed
 
 interface DailyReportData {
   totalDeliveries: number;
   totalLiters: number;
   totalValue: number;
   averagePerDelivery: number;
-  deliveries: Delivery[]; // Deliveries will include farmerName
+  deliveries: Delivery[];
 }
 
 interface FarmerReportDataItem {
@@ -23,7 +23,7 @@ interface FarmerReportData {
   farmersData: FarmerReportDataItem[];
 }
 
-interface MonthlySummaryData {
+interface MonthlySummaryData { // This is a period summary
   totalDeliveries: number;
   gradeACount: number;
   gradeBCount: number;
@@ -41,42 +41,67 @@ interface QualityReportData {
   gradeAPercentage: number;
   gradeBPercentage: number;
   gradeCPercentage: number;
-  qualityScore: number; // Example: weighted average
+  qualityScore: number;
 }
 
-async function getAllFarmersMap(): Promise<Map<string, string>> {
+interface FarmerStatementData {
+  farmerDetails: Pick<Farmer, 'id' | 'name' | 'phone' | 'location'>;
+  deliveries: Delivery[];
+  totalLitersDelivered: number;
+  totalAmountForDeliveries: number;
+  periodStartDate?: string;
+  periodEndDate?: string;
+}
+
+async function getAllFarmersMap(): Promise<Map<string, Pick<Farmer, 'id' | 'name' | 'phone' | 'location'>>> {
   const farmersSnapshot = await db.collection("farmers").get();
-  const farmersMap = new Map<string, string>();
+  const farmersMap = new Map<string, Pick<Farmer, 'id' | 'name' | 'phone' | 'location'>>();
   farmersSnapshot.forEach(doc => {
     const farmerData = doc.data() as Farmer;
-    farmersMap.set(doc.id, farmerData.name);
+    farmersMap.set(doc.id, { id: doc.id, name: farmerData.name, phone: farmerData.phone, location: farmerData.location });
   });
   return farmersMap;
 }
 
-async function getFilteredDeliveries(startDate?: string, endDate?: string): Promise<Delivery[]> {
+async function getFilteredDeliveries(startDate?: string, endDate?: string, farmerId?: string): Promise<Delivery[]> {
   let query: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> = db.collection("deliveries");
 
+  if (farmerId) {
+    query = query.where("farmerId", "==", farmerId);
+  }
   if (startDate) {
     query = query.where("date", ">=", startDate);
   }
   if (endDate) {
     query = query.where("date", "<=", endDate);
   }
-  // Default ordering, might need an index if not already present for 'date'
-  query = query.orderBy("date", "asc").orderBy("time", "asc");
+  // Default ordering, might need an index if not already present for 'date' and 'farmerId'
+  // Firestore requires the first orderBy field to be the same as the inequality filter field if multiple exist.
+  if (farmerId && startDate) {
+     // If filtering by farmerId and date, ensure correct indexing for this composite query.
+     // Example: farmerId (asc), date (asc), time (asc)
+     query = query.orderBy("date", "asc").orderBy("time", "asc");
+  } else if (startDate || endDate) {
+    query = query.orderBy("date", "asc").orderBy("time", "asc");
+  } else if (farmerId) {
+    // if only farmerId, order by date and time for consistency
+    query = query.orderBy("date", "asc").orderBy("time", "asc");
+  } else {
+    // Default for general reports without specific farmer
+    query = query.orderBy("date", "asc").orderBy("time", "asc");
+  }
 
 
   const deliveriesSnapshot = await query.get();
   const deliveries: Delivery[] = [];
-  const farmersMap = await getAllFarmersMap();
+  const farmersMap = await getAllFarmersMap(); // Fetch all farmers once for name mapping
 
   deliveriesSnapshot.forEach(doc => {
     const data = doc.data() as Omit<Delivery, 'id' | 'farmerName'>;
     deliveries.push({
       id: doc.id,
       ...data,
-      farmerName: farmersMap.get(data.farmerId) || "Unknown Farmer",
+      farmerName: farmersMap.get(data.farmerId)?.name || "Unknown Farmer",
     });
   });
   return deliveries;
@@ -84,16 +109,41 @@ async function getFilteredDeliveries(startDate?: string, endDate?: string): Prom
 
 
 export async function generateReportData(
-  reportType: 'daily' | 'farmer' | 'monthly' | 'quality',
+  reportType: 'daily' | 'farmer' | 'monthly' | 'quality' | 'farmer_statement',
   startDate?: string,
-  endDate?: string
-): Promise<DailyReportData | FarmerReportData | MonthlySummaryData | QualityReportData | { error: string }> {
+  endDate?: string,
+  farmerIdForStatement?: string
+): Promise<DailyReportData | FarmerReportData | MonthlySummaryData | QualityReportData | FarmerStatementData | { error: string }> {
   
   try {
+    const allFarmersMap = await getAllFarmersMap();
+
+    if (reportType === 'farmer_statement') {
+      if (!farmerIdForStatement) {
+        return { error: "Farmer ID is required for Farmer Statement." };
+      }
+      const farmerDetails = allFarmersMap.get(farmerIdForStatement);
+      if (!farmerDetails) {
+        return { error: `Farmer with ID ${farmerIdForStatement} not found.` };
+      }
+
+      const farmerDeliveries = await getFilteredDeliveries(startDate, endDate, farmerIdForStatement);
+      const totalLitersDelivered = farmerDeliveries.reduce((sum, d) => sum + d.quantity, 0);
+      const totalAmountForDeliveries = farmerDeliveries.reduce((sum, d) => sum + d.amount, 0);
+
+      return {
+        farmerDetails,
+        deliveries: farmerDeliveries,
+        totalLitersDelivered,
+        totalAmountForDeliveries,
+        periodStartDate: startDate,
+        periodEndDate: endDate,
+      };
+    }
+
+    // For other reports, filteredDeliveries doesn't use farmerIdForStatement
     const filteredDeliveries = await getFilteredDeliveries(startDate, endDate);
-    const allFarmersSnapshot = await db.collection("farmers").get();
-    const allFarmers: Farmer[] = [];
-    allFarmersSnapshot.forEach(doc => allFarmers.push({ id: doc.id, ...doc.data() } as Farmer));
+    const allFarmersList: Pick<Farmer, 'id' | 'name' | 'phone' | 'location'>[] = Array.from(allFarmersMap.values());
 
 
     switch (reportType) {
@@ -105,24 +155,24 @@ export async function generateReportData(
           totalLiters,
           totalValue,
           averagePerDelivery: filteredDeliveries.length > 0 ? totalLiters / filteredDeliveries.length : 0,
-          deliveries: filteredDeliveries.slice(0, 100), // Limit for display to avoid overly large reports
+          deliveries: filteredDeliveries.slice(0, 100), 
         };
       }
       case 'farmer': {
-        const farmersData: FarmerReportDataItem[] = allFarmers.map(farmer => {
+        const farmersData: FarmerReportDataItem[] = allFarmersList.map(farmer => {
           const farmerDeliveries = filteredDeliveries.filter(d => d.farmerId === farmer.id);
           const totalLiters = farmerDeliveries.reduce((sum, d) => sum + d.quantity, 0);
-          const amountDue = farmerDeliveries.reduce((sum, d) => sum + d.amount, 0); // Assumes delivery.amount is correct
+          const amountDue = farmerDeliveries.reduce((sum, d) => sum + d.amount, 0); 
           return {
             farmerName: farmer.name,
             deliveriesCount: farmerDeliveries.length,
             totalLiters,
             amountDue,
           };
-        }).filter(f => f.deliveriesCount > 0); // Only include farmers with deliveries in the period
+        }).filter(f => f.deliveriesCount > 0); 
         return { farmersData };
       }
-      case 'monthly': { // This is more of a "period summary" now
+      case 'monthly': { 
         const gradeACount = filteredDeliveries.filter(d => d.quality === 'A').length;
         const gradeBCount = filteredDeliveries.filter(d => d.quality === 'B').length;
         const gradeCCount = filteredDeliveries.filter(d => d.quality === 'C').length;
@@ -152,7 +202,6 @@ export async function generateReportData(
           };
         }
         
-        // Example quality score: Grade A = 100, B = 90, C = 80
         const qualityScore = ((gradeALiters * 100) + (gradeBLiters * 90) + (gradeCLiters * 80)) / totalLiters;
 
         return {
@@ -167,15 +216,29 @@ export async function generateReportData(
         };
       }
       default:
-        // This should be caught by TypeScript, but as a fallback
         const exhaustiveCheck: never = reportType; 
         return { error: `Invalid report type: ${exhaustiveCheck}` };
     }
   } catch (error: any) {
     console.error("Error generating report data:", error);
-    if (error.code === 5 /* NOT_FOUND for missing collection perhaps */ || error.code === 9 /* FAILED_PRECONDITION for missing index */) {
-         return { error: `Firestore error: ${error.message}. Ensure collections exist and any required indexes are built.` };
+    if (error.code === 5 || error.code === 9 ) {
+         return { error: `Firestore error: ${error.message}. Ensure collections exist and any required indexes (e.g., for date filtering on deliveries, or farmerId + date) are built.` };
     }
     return { error: "Failed to generate report data due to a server error." };
+  }
+}
+
+export async function getReportFarmers(): Promise<Pick<Farmer, 'id' | 'name'>[]> {
+  try {
+    const farmersSnapshot = await db.collection("farmers").orderBy("name").get();
+    const farmers: Pick<Farmer, 'id' | 'name'>[] = [];
+    farmersSnapshot.forEach((doc) => {
+      const farmerData = doc.data();
+      farmers.push({ id: doc.id, name: farmerData.name });
+    });
+    return farmers;
+  } catch (error) {
+    console.error("Error fetching farmers for report selection:", error);
+    return [];
   }
 }

@@ -1,21 +1,22 @@
 
 "use client";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import type { Delivery } from "@/types";
+import type { Delivery, Farmer } from "@/types";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { format } from 'date-fns';
+import { Separator } from "@/components/ui/separator";
 
 interface ReportDisplayProps {
-  reportType: 'daily' | 'farmer' | 'monthly' | 'quality' | null;
-  data: any; // This will be typed based on reportType
+  reportType: 'daily' | 'farmer' | 'monthly' | 'quality' | 'farmer_statement' | null;
+  data: any; 
   startDate?: string;
   endDate?: string;
 }
 
 export function ReportDisplay({ reportType, data, startDate, endDate }: ReportDisplayProps) {
-  if (!reportType || !data || data.error) {
+  if (!reportType || !data || (data && data.error)) {
     return (
       <Card className="mt-6 shadow-md">
         <CardHeader>
@@ -30,13 +31,79 @@ export function ReportDisplay({ reportType, data, startDate, endDate }: ReportDi
 
   const periodString = `Period: ${startDate ? format(new Date(startDate+"T00:00:00"),'PP') : 'Start'} to ${endDate ? format(new Date(endDate+"T00:00:00"),'PP') : 'End'}`;
 
+  if (reportType === 'farmer_statement' && data && data.farmerDetails) {
+    const reportData = data as { 
+        farmerDetails: Pick<Farmer, 'id' | 'name' | 'phone' | 'location'>;
+        deliveries: Delivery[];
+        totalLitersDelivered: number;
+        totalAmountForDeliveries: number;
+        periodStartDate?: string;
+        periodEndDate?: string;
+    };
+    return (
+      <Card className="mt-6 shadow-md">
+        <CardHeader>
+          <CardTitle>Farmer Statement: {reportData.farmerDetails.name}</CardTitle>
+          <CardDescription>
+            ID: {reportData.farmerDetails.id} <br />
+            Phone: {reportData.farmerDetails.phone || 'N/A'} | Location: {reportData.farmerDetails.location || 'N/A'} <br/>
+            {periodString}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <h4 className="font-semibold mb-2 text-lg">Deliveries</h4>
+          <ScrollArea className="h-[350px] border rounded-md">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Time</TableHead>
+                  <TableHead>Quantity (L)</TableHead>
+                  <TableHead>Quality</TableHead>
+                  <TableHead>Amount (UGX)</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {reportData.deliveries.length === 0 ? (
+                  <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">No deliveries found for this period.</TableCell></TableRow>
+                ) : (
+                  reportData.deliveries.map(d => (
+                    <TableRow key={d.id}>
+                      <TableCell>{format(new Date(d.date + 'T00:00:00'), 'PP')}</TableCell>
+                      <TableCell>{d.time}</TableCell>
+                      <TableCell>{(d.quantity || 0).toFixed(1)}</TableCell>
+                      <TableCell>{d.quality}</TableCell>
+                      <TableCell>{(d.amount || 0).toLocaleString()}</TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </ScrollArea>
+          <Separator className="my-6" />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-lg">
+            <div className="p-4 bg-muted/50 rounded-md">
+                <p className="text-sm text-muted-foreground">Total Liters Delivered</p>
+                <p className="font-bold">{(reportData.totalLitersDelivered || 0).toFixed(1)} L</p>
+            </div>
+            <div className="p-4 bg-muted/50 rounded-md">
+                <p className="text-sm text-muted-foreground">Total Value of Deliveries</p>
+                <p className="font-bold">UGX {(reportData.totalAmountForDeliveries || 0).toLocaleString()}</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+
   if (reportType === 'daily' && data) {
     const reportData = data as { totalDeliveries: number, totalLiters: number, totalValue: number, averagePerDelivery: number, deliveries: Delivery[] };
     return (
       <Card className="mt-6 shadow-md">
         <CardHeader>
           <CardTitle>Daily Collection Report</CardTitle>
-          <p className="text-sm text-muted-foreground">{periodString}</p>
+          <CardDescription>{periodString}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
@@ -45,7 +112,7 @@ export function ReportDisplay({ reportType, data, startDate, endDate }: ReportDi
             <div><p className="text-xs text-muted-foreground">Total Value</p><p className="text-xl font-bold">UGX {(reportData.totalValue || 0).toLocaleString()}</p></div>
             <div><p className="text-xs text-muted-foreground">Avg. per Delivery</p><p className="text-xl font-bold">{(reportData.averagePerDelivery || 0).toFixed(1)} L</p></div>
           </div>
-          <h4 className="font-semibold mt-4">Sample Deliveries (Max 50):</h4>
+          <h4 className="font-semibold mt-4">Sample Deliveries (Max 100):</h4>
           <ScrollArea className="h-[300px] border rounded-md">
             <Table>
               <TableHeader>
@@ -73,7 +140,7 @@ export function ReportDisplay({ reportType, data, startDate, endDate }: ReportDi
       <Card className="mt-6 shadow-md">
         <CardHeader>
           <CardTitle>Farmer Payment Report</CardTitle>
-           <p className="text-sm text-muted-foreground">{periodString}</p>
+           <CardDescription>{periodString}</CardDescription>
         </CardHeader>
         <CardContent>
           <ScrollArea className="h-[400px] border rounded-md">
@@ -102,8 +169,8 @@ export function ReportDisplay({ reportType, data, startDate, endDate }: ReportDi
     return (
       <Card className="mt-6 shadow-md">
         <CardHeader>
-          <CardTitle>Summary Report</CardTitle>
-          <p className="text-sm text-muted-foreground">{periodString}</p>
+          <CardTitle>Period Summary Report</CardTitle>
+          <CardDescription>{periodString}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
             <p><strong>Total Deliveries:</strong> {(reportData.totalDeliveries || 0).toLocaleString()}</p>
@@ -121,7 +188,7 @@ export function ReportDisplay({ reportType, data, startDate, endDate }: ReportDi
       <Card className="mt-6 shadow-md">
         <CardHeader>
           <CardTitle>Quality Analysis Report</CardTitle>
-           <p className="text-sm text-muted-foreground">{periodString}</p>
+           <CardDescription>{periodString}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
           <p><strong>Total Liters Analyzed:</strong> {(reportData.totalLiters || 0).toFixed(1)} L</p>

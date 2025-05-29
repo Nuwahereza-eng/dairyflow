@@ -1,8 +1,8 @@
 
 export interface Farmer {
-  id: string;
+  id: string; // This will be the Firebase Auth UID for farmers
   name: string;
-  phone: string; // Should be E.164 format
+  phone: string; // Should be E.164 format, used for Firebase Auth email
   location: string;
   joinDate: string;
   idNumber?: string;
@@ -34,12 +34,15 @@ export interface Payment {
 
 export type UserRole = 'farmer' | 'operator' | 'admin';
 
-export interface User { // This type is mainly for the mock users / settings page user list
-  id: string;
-  username: string;
+// This User type is now primarily for listing Admin/Operator users in settings.
+// It reflects data that can be derived from Firebase Auth users.
+export interface User {
+  id: string; // Firebase Auth UID
+  username: string; // Plain username (e.g., 'admin1', 'operator_jane')
+  email?: string; // The pseudo-email used for Firebase Auth (e.g., username@admin.dairyflow.com)
   role: UserRole;
-  password?: string;
-  status: 'active' | 'inactive';
+  password?: string; // Only used for setting initial password, not stored/retrieved
+  status: 'active' | 'inactive'; // Mapped to Firebase Auth user's `disabled` state
 }
 
 export interface SystemSettings {
@@ -49,12 +52,13 @@ export interface SystemSettings {
   smsUsername: string;
 }
 
-// Updated AuthenticatedUser for Firebase Auth integration
 export interface AuthenticatedUser {
-  uid?: string; // Firebase User ID, present if isFirebaseUser is true
-  username: string; // For Firebase, this will be the email (farmer's phone). For mock, it's the mock username.
+  uid: string; // Firebase User ID
+  username: string; // Plain username (farmer phone, admin/op username)
   role: UserRole;
-  isFirebaseUser?: boolean; // True if authenticated via Firebase
+  isFirebaseUser: true; // All users will now be Firebase users
 }
 
-export const DUMMY_EMAIL_DOMAIN = '@phone.dairyflow.com';
+export const FARMER_EMAIL_DOMAIN = '@phone.dairyflow.com';
+export const OPERATOR_EMAIL_DOMAIN = '@operator.dairyflow.com';
+export const ADMIN_EMAIL_DOMAIN = '@admin.dairyflow.com';

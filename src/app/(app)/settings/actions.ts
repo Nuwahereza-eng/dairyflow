@@ -4,11 +4,12 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import type { SystemSettings, User, UserRole } from "@/types";
-import { db } from "@/lib/firebaseAdmin";
-import { initialSystemSettings, initialUsers } from "@/lib/mockData";
+import { ADMIN_EMAIL_DOMAIN, OPERATOR_EMAIL_DOMAIN } from "@/types";
+import { db, authAdmin } from "@/lib/firebaseAdmin";
+import { initialSystemSettings } from "@/lib/mockData"; // Keep for default settings
 
 const SETTINGS_COLLECTION = "system_config";
-const SETTINGS_DOC_ID = "main"; // Using a fixed ID for the single settings document
+const SETTINGS_DOC_ID = "main"; 
 
 const systemSettingsSchema = z.object({
   milkPricePerLiter: z.coerce.number().min(0, "Milk price must be non-negative"),
@@ -17,13 +18,14 @@ const systemSettingsSchema = z.object({
   smsUsername: z.string().optional().default(''),
 });
 
-const userSchema = z.object({
-  id: z.string().optional(),
+// Schema for adding/editing Admin/Operator users
+const appUserSchema = z.object({
   username: z.string().min(3, "Username must be at least 3 characters"),
   role: z.enum(["operator", "admin"], { required_error: "Role is required" }),
-  password: z.string().min(6, "Password must be at least 6 characters").optional(),
+  password: z.string().min(6, "Password must be at least 6 characters").optional(), // Required for new, optional for edit
   status: z.enum(["active", "inactive"]),
 });
+
 
 export async function getSystemSettings(): Promise<SystemSettings> {
   try {
@@ -35,7 +37,6 @@ export async function getSystemSettings(): Promise<SystemSettings> {
       return settingsDoc.data() as SystemSettings;
     } else {
       console.log("No system settings found in Firestore. Creating with defaults and returning them.");
-      // If document doesn't exist, create it with initial/default settings
       const defaultsToSave: SystemSettings = {
         milkPricePerLiter: initialSystemSettings.milkPricePerLiter,
         smsProvider: initialSystemSettings.smsProvider,
@@ -48,8 +49,6 @@ export async function getSystemSettings(): Promise<SystemSettings> {
     }
   } catch (error) {
     console.error("Error fetching or creating system settings:", error);
-    // Fallback to in-memory defaults if Firestore fails critically
-    // In a production app, you might want to throw an error or handle this more gracefully
     console.warn("Falling back to initialSystemSettings due to Firestore error.");
     return initialSystemSettings;
   }
@@ -69,12 +68,10 @@ export async function saveSystemSettingsAction(data: Partial<SystemSettings>) {
     
     revalidatePath("/settings");
     
-    // Fetch the updated settings to return
     const updatedSettingsDoc = await settingsDocRef.get();
-    if (updatedSettingsDoc.exists) { // Corrected: .exists is a property, not a method
+    if (updatedSettingsDoc.exists) {
       return { success: true, settings: updatedSettingsDoc.data() as SystemSettings };
     }
-    // Should not happen if set was successful, but as a fallback
     console.warn("Updated settings document not found immediately after save. This is unexpected.");
     return { success: true, settings: { ...initialSystemSettings, ...validatedData.data } };
 
@@ -84,87 +81,156 @@ export async function saveSystemSettingsAction(data: Partial<SystemSettings>) {
   }
 }
 
-
-// User management functions remain in-memory for now
-let usersStore: User[] = [...initialUsers];
-
+// User management functions now interact with Firebase Auth
 export async function getUsers(): Promise<Omit<User, 'password'>[]> {
-  return JSON.parse(JSON.stringify(usersStore.map(({ password, ...user }) => user)));
+  try {
+    const listUsersResult = await authAdmin.listUsers(1000); // Max 1000 users per page
+    const appUsers: Omit<User, 'password'>[] = [];
+    
+    for (const userRecord of listUsersResult.users) {
+      const role = userRecord.customClaims?.role as UserRole;
+      if (role === 'admin' || role === 'operator') {
+        const plainUsername = userRecord.email?.split('@')[0] || userRecord.displayName || userRecord.uid;
+        appUsers.push({
+          id: userRecord.uid,
+          username: plainUsername,
+          email: userRecord.email,
+          role: role,
+          status: userRecord.disabled ? 'inactive' : 'active',
+        });
+      }
+    }
+    // Sort users by username for consistent display
+    appUsers.sort((a, b) => a.username.localeCompare(b.username));
+    return appUsers;
+  } catch (error) {
+    console.error("Error fetching app users from Firebase Auth:", error);
+    return [];
+  }
 }
 
 export async function addUserAction(data: Omit<User, 'id'>) {
-  const newUserSchema = userSchema.extend({
-    password: z.string().min(6, "Password must be at least 6 characters"),
-  }).omit({ id: true });
-
+  const newUserSchema = appUserSchema.extend({
+    password: z.string().min(6, "Password must be at least 6 characters."),
+  });
   const validatedData = newUserSchema.safeParse(data);
+
   if (!validatedData.success) {
     return { success: false, errors: validatedData.error.flatten().fieldErrors };
   }
 
-  if (usersStore.some(u => u.username === validatedData.data.username)) {
-    return { success: false, errors: { username: ["Username already exists."] } };
-  }
+  const { username, role, password, status } = validatedData.data;
+  const emailDomain = role === 'admin' ? ADMIN_EMAIL_DOMAIN : OPERATOR_EMAIL_DOMAIN;
+  const emailForFirebase = username.trim() + emailDomain;
+  const defaultPassword = password; // Password comes from form
 
-  const newUser: User = {
-    ...validatedData.data,
-    id: (usersStore.length + 1 + Math.random()).toString(), 
-  };
-  usersStore.push(newUser);
-  
-  revalidatePath("/settings");
-  const { password, ...userToReturn } = newUser;
-  return { success: true, user: userToReturn };
+  try {
+    console.log(`Attempting to create Firebase Auth user. Pseudo-email: ${emailForFirebase}`);
+    const userRecord = await authAdmin.createUser({
+      email: emailForFirebase,
+      password: defaultPassword,
+      displayName: username,
+      disabled: status === 'inactive',
+      emailVerified: true, // Assuming admin/op emails are "verified" in this context
+    });
+
+    await authAdmin.setCustomUserClaims(userRecord.uid, { role });
+    console.log(`Firebase Auth user ${username} (UID: ${userRecord.uid}) created with role ${role}.`);
+
+    revalidatePath("/settings");
+    return { 
+      success: true, 
+      user: { 
+        id: userRecord.uid, 
+        username: username, 
+        email: emailForFirebase, 
+        role, 
+        status 
+      } 
+    };
+  } catch (error: any) {
+    console.error("Error adding app user to Firebase Auth:", error);
+    if (error.code === 'auth/email-already-exists') {
+      return { success: false, errors: { username: ["A user with this username (or derived email) already exists."] } };
+    }
+    return { success: false, errors: { _form: [`Firebase Auth user creation failed: ${error.message}`] } };
+  }
 }
 
 export async function updateUserAction(id: string, data: Partial<Omit<User, 'id' | 'password'>>) {
-   const userIndex = usersStore.findIndex(u => u.id === id);
-  if (userIndex === -1) {
-    return { success: false, errors: { _form: ["User not found"] } };
-  }
-  
-  const partialUserSchema = userSchema.partial().omit({id: true, password: true});
+  const partialUserSchema = appUserSchema.omit({ password: true }); // Password update is separate
   const validatedData = partialUserSchema.safeParse(data);
 
   if (!validatedData.success) {
     return { success: false, errors: validatedData.error.flatten().fieldErrors };
   }
-  
-  if (validatedData.data.username && validatedData.data.username !== usersStore[userIndex].username && usersStore.some(u => u.username === validatedData.data.username)) {
-      return { success: false, errors: { username: ["Username already exists."] } };
-  }
 
-  usersStore[userIndex] = { ...usersStore[userIndex], ...validatedData.data };
-  const { password, ...updatedUserNoPass } = usersStore[userIndex];
-  
-  revalidatePath("/settings");
-  return { success: true, user: updatedUserNoPass };
+  const { username, role, status } = validatedData.data;
+
+  try {
+    const updates: any = {};
+    if (username) updates.displayName = username;
+    if (status) updates.disabled = status === 'inactive';
+    // Note: Changing email (derived from username) is complex and not handled here.
+    // If username changes, it should ideally trigger an email update if they are linked.
+    // For now, we assume username only changes displayName.
+
+    await authAdmin.updateUser(id, updates);
+
+    if (role) {
+      await authAdmin.setCustomUserClaims(id, { role });
+    }
+    
+    const updatedUserRecord = await authAdmin.getUser(id);
+    const updatedPlainUsername = updatedUserRecord.email?.split('@')[0] || updatedUserRecord.displayName || updatedUserRecord.uid;
+
+
+    revalidatePath("/settings");
+    return { 
+      success: true, 
+      user: { 
+        id: updatedUserRecord.uid, 
+        username: updatedPlainUsername, 
+        email: updatedUserRecord.email,
+        role: (updatedUserRecord.customClaims?.role as UserRole) || role, // Use new role if provided
+        status: updatedUserRecord.disabled ? 'inactive' : 'active' 
+      } 
+    };
+  } catch (error: any) {
+    console.error("Error updating app user in Firebase Auth:", error);
+     if (error.code === 'auth/user-not-found') {
+        return { success: false, errors: { _form: ["User not found in Firebase Auth."] } };
+    }
+    return { success: false, errors: { _form: [`Firebase Auth user update failed: ${error.message}`] } };
+  }
 }
 
 
 export async function deleteUserAction(id: string) {
-  const initialLength = usersStore.length;
-  usersStore = usersStore.filter(u => u.id !== id);
-
-  if (usersStore.length === initialLength) {
-     return { success: false, errors: { _form: ["User not found or already deleted"] } };
+  try {
+    await authAdmin.deleteUser(id);
+    console.log(`Firebase Auth user UID: ${id} deleted successfully.`);
+    revalidatePath("/settings");
+    return { success: true };
+  } catch (error: any) {
+    console.error("Error deleting app user from Firebase Auth:", error);
+    if (error.code === 'auth/user-not-found') {
+        return { success: false, errors: { _form: ["User not found in Firebase Auth."] } };
+    }
+    return { success: false, errors: { _form: [`Firebase Auth user deletion failed: ${error.message}`] } };
   }
-  
-  revalidatePath("/settings");
-  return { success: true };
 }
 
 export async function updateUserPasswordAction(id: string, newPassword: string) {
-  const userIndex = usersStore.findIndex(u => u.id === id);
-  if (userIndex === -1) {
-    return { success: false, message: "User not found." };
-  }
   if (newPassword.length < 6) {
     return { success: false, message: "Password must be at least 6 characters." };
   }
-  
-  usersStore[userIndex].password = newPassword;
-  
-  revalidatePath("/settings"); 
-  return { success: true, message: "Password updated successfully." };
+  try {
+    await authAdmin.updateUser(id, { password: newPassword });
+    revalidatePath("/settings"); 
+    return { success: true, message: "Password updated successfully for user." };
+  } catch (error: any) {
+    console.error("Error updating user password in Firebase Auth:", error);
+    return { success: false, message: `Password update failed: ${error.message}` };
+  }
 }

@@ -1,3 +1,4 @@
+
 "use client";
 
 import {
@@ -23,6 +24,7 @@ interface DeliveriesTableProps {
   deliveries: Delivery[];
   onEdit: (delivery: Delivery) => void;
   onDelete: (deliveryId: string) => void;
+  canManage?: boolean; // New prop
 }
 
 function QualityBadge({ quality }: { quality: 'A' | 'B' | 'C' }) {
@@ -33,7 +35,7 @@ function QualityBadge({ quality }: { quality: 'A' | 'B' | 'C' }) {
   return <span className={className}>Grade {quality}</span>;
 }
 
-export function DeliveriesTable({ deliveries, onEdit, onDelete }: DeliveriesTableProps) {
+export function DeliveriesTable({ deliveries, onEdit, onDelete, canManage = true }: DeliveriesTableProps) {
   return (
     <div className="rounded-lg border shadow-sm bg-card">
       <Table>
@@ -45,13 +47,13 @@ export function DeliveriesTable({ deliveries, onEdit, onDelete }: DeliveriesTabl
             <TableHead>Quantity (L)</TableHead>
             <TableHead>Quality</TableHead>
             <TableHead>Amount (UGX)</TableHead>
-            <TableHead className="text-right">Actions</TableHead>
+            {canManage && <TableHead className="text-right">Actions</TableHead>}
           </TableRow>
         </TableHeader>
         <TableBody>
           {deliveries.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+              <TableCell colSpan={canManage ? 7 : 6} className="h-24 text-center text-muted-foreground">
                 No deliveries found.
               </TableCell>
             </TableRow>
@@ -64,27 +66,29 @@ export function DeliveriesTable({ deliveries, onEdit, onDelete }: DeliveriesTabl
                 <TableCell>{delivery.quantity.toFixed(1)}</TableCell>
                 <TableCell><QualityBadge quality={delivery.quality} /></TableCell>
                 <TableCell>{delivery.amount.toLocaleString()}</TableCell>
-                <TableCell className="text-right">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" className="h-8 w-8 p-0">
-                        <span className="sr-only">Open menu</span>
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => onEdit(delivery)}>
-                        <Edit className="mr-2 h-4 w-4" /> Edit
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => onDelete(delivery.id)}
-                        className="text-destructive focus:text-destructive focus:bg-destructive/10"
-                      >
-                        <Trash2 className="mr-2 h-4 w-4" /> Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </TableCell>
+                {canManage && (
+                  <TableCell className="text-right">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" className="h-8 w-8 p-0">
+                          <span className="sr-only">Open menu</span>
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => onEdit(delivery)}>
+                          <Edit className="mr-2 h-4 w-4" /> Edit
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => onDelete(delivery.id)}
+                          className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" /> Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                )}
               </TableRow>
             ))
           )}

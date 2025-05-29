@@ -7,7 +7,7 @@ import { getFirestore } from "firebase/firestore";
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyDLc0DpKSMs1ESUHYaqXYU3NmuVY7biRaw",
+  apiKey: import.meta.env.google_api_key,
   authDomain: "dairyconnect-7b93a.firebaseapp.com",
   projectId: "dairyconnect-7b93a",
   storageBucket: "dairyconnect-7b93a.appspot.com", // Corrected from firebasestorage.app to appspot.com

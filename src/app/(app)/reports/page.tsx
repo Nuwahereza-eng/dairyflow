@@ -18,8 +18,6 @@ import { ReportDisplay } from "@/components/reports/ReportDisplay";
 import { generateReportData, getReportFarmers } from "./actions";
 import { Download, FileText, Loader2, UserSearch } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
 import type { Delivery, Farmer } from "@/types";
 import { format } from 'date-fns';
 
@@ -69,7 +67,7 @@ export default function ReportsPage() {
     setIsLoading(true);
     setReportData(null);
     try {
-      const data = await generateReportData(reportType as NonNullable<ReportType>, startDate, endDate, selectedFarmerForStatement);
+      const data = await generateReportData(reportType as 'daily' | 'farmer' | 'monthly' | 'quality' | 'farmer_statement', startDate, endDate, selectedFarmerForStatement);
       if (data && 'error' in data && data.error) {
         toast({ variant: "destructive", title: "Report Generation Failed", description: data.error });
         setReportData(null);
@@ -85,11 +83,16 @@ export default function ReportsPage() {
     }
   };
 
-  const exportToPDF = () => {
-    if (!reportData || !reportType || (reportData && 'error' in reportData && reportData.error)) {
-      toast({ title: "No Data", description: "Generate a report first to export.", variant: "default" });
-      return;
-    }
+const exportToPDF = async () => {
+  if (!reportData || !reportType || (reportData && 'error' in reportData && reportData.error)) {
+    toast({ title: "No Data", description: "Generate a report first to export.", variant: "default" });
+    return;
+  }
+
+  const jsPDFModule = await import('jspdf');
+  const autoTableModule = await import('jspdf-autotable');
+  const jsPDF = jsPDFModule.default;
+  // No need to call autoTableModule.default(jsPDF), doc.autoTable will work as expected
 
     const doc = new jsPDF();
     const reportTitle = reportType.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());

@@ -2,7 +2,7 @@
 export interface Farmer {
   id: string;
   name: string;
-  phone: string;
+  phone: string; // Should be E.164 format
   location: string;
   joinDate: string;
   idNumber?: string;
@@ -34,11 +34,11 @@ export interface Payment {
 
 export type UserRole = 'farmer' | 'operator' | 'admin';
 
-export interface User {
+export interface User { // This type is mainly for the mock users / settings page user list
   id: string;
   username: string;
   role: UserRole;
-  password?: string; // Only for creation/login, not stored in frontend state long-term
+  password?: string; 
   status: 'active' | 'inactive';
 }
 
@@ -49,7 +49,10 @@ export interface SystemSettings {
   smsUsername: string;
 }
 
+// Updated AuthenticatedUser for Firebase Auth integration
 export interface AuthenticatedUser {
-  username: string;
+  uid?: string; // Firebase User ID, present if isFirebaseUser is true
+  username: string; // For Firebase, this will be the email (farmer's phone). For mock, it's the mock username.
   role: UserRole;
+  isFirebaseUser?: boolean; // True if authenticated via Firebase
 }

@@ -2,7 +2,12 @@
     "IDX.aI.enableInlineCompletion": true,
     "IDX.aI.enableCodebaseIndexing": true,
     "cSpell.words": [
+        "appspot",
         "autotable",
-        "genkit"
+        "dairyconnect",
+        "firebaseapp",
+        "Firestore",
+        "genkit",
+        "Vowas"
     ]
 }

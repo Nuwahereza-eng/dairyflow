@@ -1,4 +1,5 @@
 
+
 import { config } from 'dotenv';
 config(); // Ensure environment variables are loaded first
 
@@ -43,4 +44,3 @@ import '@/ai/flows/payment-notification.ts';
     console.error(`[Custom Claim Script] Error setting custom claim for UID ${userUID}:`, error);
   }
 })();
-// --- END TEMPORARY SCRIPT ---

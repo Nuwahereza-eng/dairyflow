@@ -1,3 +1,4 @@
+
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -39,10 +40,10 @@ export function ReportDisplay({ reportType, data, startDate, endDate }: ReportDi
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-            <div><p className="text-xs text-muted-foreground">Total Deliveries</p><p className="text-xl font-bold">{reportData.totalDeliveries}</p></div>
-            <div><p className="text-xs text-muted-foreground">Total Liters</p><p className="text-xl font-bold">{reportData.totalLiters.toFixed(1)} L</p></div>
-            <div><p className="text-xs text-muted-foreground">Total Value</p><p className="text-xl font-bold">UGX {reportData.totalValue.toLocaleString()}</p></div>
-            <div><p className="text-xs text-muted-foreground">Avg. per Delivery</p><p className="text-xl font-bold">{reportData.averagePerDelivery.toFixed(1)} L</p></div>
+            <div><p className="text-xs text-muted-foreground">Total Deliveries</p><p className="text-xl font-bold">{reportData.totalDeliveries || 0}</p></div>
+            <div><p className="text-xs text-muted-foreground">Total Liters</p><p className="text-xl font-bold">{(reportData.totalLiters || 0).toFixed(1)} L</p></div>
+            <div><p className="text-xs text-muted-foreground">Total Value</p><p className="text-xl font-bold">UGX {(reportData.totalValue || 0).toLocaleString()}</p></div>
+            <div><p className="text-xs text-muted-foreground">Avg. per Delivery</p><p className="text-xl font-bold">{(reportData.averagePerDelivery || 0).toFixed(1)} L</p></div>
           </div>
           <h4 className="font-semibold mt-4">Sample Deliveries (Max 50):</h4>
           <ScrollArea className="h-[300px] border rounded-md">
@@ -53,9 +54,9 @@ export function ReportDisplay({ reportType, data, startDate, endDate }: ReportDi
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {reportData.deliveries.map(d => (
+                {(reportData.deliveries || []).map(d => (
                   <TableRow key={d.id}>
-                    <TableCell>{format(new Date(d.date+"T00:00:00"),'PP')}</TableCell><TableCell>{d.farmerName}</TableCell><TableCell>{d.quantity.toFixed(1)}</TableCell><TableCell>{d.quality}</TableCell><TableCell>{d.amount.toLocaleString()}</TableCell>
+                    <TableCell>{format(new Date(d.date+"T00:00:00"),'PP')}</TableCell><TableCell>{d.farmerName}</TableCell><TableCell>{(d.quantity || 0).toFixed(1)}</TableCell><TableCell>{d.quality}</TableCell><TableCell>{(d.amount || 0).toLocaleString()}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -83,9 +84,9 @@ export function ReportDisplay({ reportType, data, startDate, endDate }: ReportDi
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {reportData.farmersData.map(f => (
+                {(reportData.farmersData || []).map(f => (
                   <TableRow key={f.farmerName}>
-                    <TableCell>{f.farmerName}</TableCell><TableCell>{f.deliveriesCount}</TableCell><TableCell>{f.totalLiters.toFixed(1)}</TableCell><TableCell>{f.amountDue.toLocaleString()}</TableCell>
+                    <TableCell>{f.farmerName}</TableCell><TableCell>{f.deliveriesCount || 0}</TableCell><TableCell>{(f.totalLiters || 0).toFixed(1)}</TableCell><TableCell>{(f.amountDue || 0).toLocaleString()}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -105,10 +106,10 @@ export function ReportDisplay({ reportType, data, startDate, endDate }: ReportDi
           <p className="text-sm text-muted-foreground">{periodString}</p>
         </CardHeader>
         <CardContent className="space-y-2">
-            <p><strong>Total Deliveries:</strong> {reportData.totalDeliveries.toLocaleString()}</p>
-            <p><strong>Grade A Deliveries:</strong> {reportData.gradeACount.toLocaleString()} ({reportData.gradeALiters.toFixed(1)} L)</p>
-            <p><strong>Grade B Deliveries:</strong> {reportData.gradeBCount.toLocaleString()} ({reportData.gradeBLiters.toFixed(1)} L)</p>
-            <p><strong>Grade C Deliveries:</strong> {reportData.gradeCCount.toLocaleString()} ({reportData.gradeCLiters.toFixed(1)} L)</p>
+            <p><strong>Total Deliveries:</strong> {(reportData.totalDeliveries || 0).toLocaleString()}</p>
+            <p><strong>Grade A Deliveries:</strong> {(reportData.gradeACount || 0).toLocaleString()} ({(reportData.gradeALiters || 0).toFixed(1)} L)</p>
+            <p><strong>Grade B Deliveries:</strong> {(reportData.gradeBCount || 0).toLocaleString()} ({(reportData.gradeBLiters || 0).toFixed(1)} L)</p>
+            <p><strong>Grade C Deliveries:</strong> {(reportData.gradeCCount || 0).toLocaleString()} ({(reportData.gradeCLiters || 0).toFixed(1)} L)</p>
         </CardContent>
       </Card>
     );
@@ -123,11 +124,11 @@ export function ReportDisplay({ reportType, data, startDate, endDate }: ReportDi
            <p className="text-sm text-muted-foreground">{periodString}</p>
         </CardHeader>
         <CardContent className="space-y-2">
-          <p><strong>Total Liters Analyzed:</strong> {reportData.totalLiters.toFixed(1)} L</p>
-          <p><strong>Grade A:</strong> {reportData.gradeALiters.toFixed(1)} L ({reportData.gradeAPercentage.toFixed(1)}%)</p>
-          <p><strong>Grade B:</strong> {reportData.gradeBLiters.toFixed(1)} L ({reportData.gradeBPercentage.toFixed(1)}%)</p>
-          <p><strong>Grade C:</strong> {reportData.gradeCLiters.toFixed(1)} L ({reportData.gradeCPercentage.toFixed(1)}%)</p>
-          <p><strong>Overall Quality Score:</strong> {reportData.qualityScore.toFixed(1)}%</p>
+          <p><strong>Total Liters Analyzed:</strong> {(reportData.totalLiters || 0).toFixed(1)} L</p>
+          <p><strong>Grade A:</strong> {(reportData.gradeALiters || 0).toFixed(1)} L ({(reportData.gradeAPercentage || 0).toFixed(1)}%)</p>
+          <p><strong>Grade B:</strong> {(reportData.gradeBLiters || 0).toFixed(1)} L ({(reportData.gradeBPercentage || 0).toFixed(1)}%)</p>
+          <p><strong>Grade C:</strong> {(reportData.gradeCLiters || 0).toFixed(1)} L ({(reportData.gradeCPercentage || 0).toFixed(1)}%)</p>
+          <p><strong>Overall Quality Score:</strong> {(reportData.qualityScore || 0).toFixed(1)}%</p>
         </CardContent>
       </Card>
     );

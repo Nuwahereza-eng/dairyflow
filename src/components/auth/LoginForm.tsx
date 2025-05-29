@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from 'react';
@@ -22,8 +23,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useAuth } from '@/contexts/AuthContext';
-import type { UserRole, AuthenticatedUser } from '@/types';
-import { initialUsers } from '@/lib/mockData'; // For demo auth
+import type { UserRole } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2 } from 'lucide-react';
 
@@ -39,52 +39,48 @@ export function LoginForm() {
   const { login } = useAuth();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      role: 'operator',
+      role: 'farmer', // Default to farmer for easier testing of new Firebase auth
       username: '',
       password: '',
     },
   });
 
-  function onSubmit(values: z.infer<typeof formSchema>) {
+  async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsLoading(true);
-    // Simulate API call for authentication
-    setTimeout(() => {
-      const foundUser = initialUsers.find(
-        (u) => u.username === values.username && u.role === values.role
-      );
-
-      // In a real app, password would be hashed and checked on the server
-      // For this demo, we'll just check if the user exists with the role
-      // A very basic password check for 'admin' and 'operator1' for demo purposes
-      let passwordMatch = true;
-      if (values.username === 'admin' && values.password !== 'adminpass') passwordMatch = false;
-      if (values.username === 'operator1' && values.password !== 'op1pass') passwordMatch = false;
-      if (values.username === 'farmer_john' && values.password !== 'farmerpass') passwordMatch = false;
-
-
-      if (foundUser && passwordMatch) {
-        const authUser: AuthenticatedUser = {
-          username: foundUser.username,
-          role: foundUser.role as UserRole,
-        };
-        login(authUser);
-        toast({
-          title: "Login Successful",
-          description: `Welcome, ${foundUser.username}!`,
-        });
-      } else {
-        toast({
-          variant: "destructive",
-          title: "Login Failed",
-          description: "Invalid credentials or role selection. Please try again.",
-        });
+    setLoginError(null);
+    try {
+      await login({ 
+        role: values.role as UserRole, 
+        username: values.username, 
+        password: values.password 
+      });
+      toast({
+        title: "Login Successful",
+        description: `Welcome, ${values.username}!`,
+      });
+      // AuthContext will handle navigation
+    } catch (error: any) {
+      console.error("Login form submission error:", error);
+      let errorMessage = "Login failed. Please check your credentials and role.";
+      if (error.code === 'auth/invalid-credential' || error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+        errorMessage = "Invalid phone number or password for farmer.";
+      } else if (error.message) {
+        errorMessage = error.message; // Use message from AuthContext for mock users
       }
+      setLoginError(errorMessage); // Display error message below the form
+      toast({
+        variant: "destructive",
+        title: "Login Failed",
+        description: errorMessage,
+      });
+    } finally {
       setIsLoading(false);
-    }, 1000);
+    }
   }
 
   return (
@@ -117,9 +113,9 @@ export function LoginForm() {
           name="username"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Username / Phone</FormLabel>
+              <FormLabel>Username / Phone (E.164 for Farmer)</FormLabel>
               <FormControl>
-                <Input placeholder="Enter username or phone" {...field} />
+                <Input placeholder="Enter username or phone (+256...)" {...field} />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -138,14 +134,13 @@ export function LoginForm() {
             </FormItem>
           )}
         />
+        {loginError && (
+          <p className="text-sm font-medium text-destructive">{loginError}</p>
+        )}
         <Button type="submit" className="w-full" disabled={isLoading}>
           {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
           Login
         </Button>
-        {/* Registration button can be added here if needed, for now handled via Farmer Management by Admin/Operator */}
-        {/* <Button variant="outline" className="w-full mt-2" onClick={() => alert("Registration not implemented in this form.")}>
-          Register New Farmer
-        </Button> */}
       </form>
     </Form>
   );

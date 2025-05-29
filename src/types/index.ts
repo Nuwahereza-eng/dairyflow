@@ -1,8 +1,8 @@
 
 export interface Farmer {
-  id: string;
+  id: string; // This will be the Firebase Auth UID for farmers
   name: string;
-  phone: string;
+  phone: string; // Should be E.164 format, used for Firebase Auth email
   location: string;
   joinDate: string;
   idNumber?: string;
@@ -34,12 +34,15 @@ export interface Payment {
 
 export type UserRole = 'farmer' | 'operator' | 'admin';
 
+// This User type is now primarily for listing Admin/Operator users in settings.
+// It reflects data that can be derived from Firebase Auth users.
 export interface User {
-  id: string;
-  username: string;
+  id: string; // Firebase Auth UID
+  username: string; // Plain username (e.g., 'admin1', 'operator_jane')
+  email?: string; // The pseudo-email used for Firebase Auth (e.g., username@admin.dairyflow.com)
   role: UserRole;
-  password?: string; // Only for creation/login, not stored in frontend state long-term
-  status: 'active' | 'inactive';
+  password?: string; // Only used for setting initial password, not stored/retrieved
+  status: 'active' | 'inactive'; // Mapped to Firebase Auth user's `disabled` state
 }
 
 export interface SystemSettings {
@@ -50,6 +53,12 @@ export interface SystemSettings {
 }
 
 export interface AuthenticatedUser {
-  username: string;
+  uid: string; // Firebase User ID
+  username: string; // Plain username (farmer phone, admin/op username)
   role: UserRole;
+  isFirebaseUser: true; // All users will now be Firebase users
 }
+
+export const FARMER_EMAIL_DOMAIN = '@phone.dairyflow.com';
+export const OPERATOR_EMAIL_DOMAIN = '@operator.dairyflow.com';
+export const ADMIN_EMAIL_DOMAIN = '@admin.dairyflow.com';

@@ -1,3 +1,4 @@
+
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -28,68 +29,60 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { User } from "@/types";
-import { addUserAction, updateUserAction } from "@/app/(app)/settings/actions";
+import type { User, UserRole } from "@/types"; // Import UserRole
+import { addUserAction, updateUserAction, updateUserPasswordAction } from "@/app/(app)/settings/actions";
 import { useToast } from "@/hooks/use-toast";
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 
-const userFormSchemaBase = z.object({
+// Schema for the form data (password is for new users or changing password)
+const userFormSchema = z.object({
   username: z.string().min(3, "Username must be at least 3 characters."),
   role: z.enum(["operator", "admin"], { required_error: "Role is required." }),
+  password: z.string().min(6, "Password must be at least 6 characters.").optional().or(z.literal('')), // Optional, allow empty for edit
   status: z.enum(["active", "inactive"], { required_error: "Status is required." }),
 });
 
-// For new users, password is required
-const newUserFormSchema = userFormSchemaBase.extend({
-  password: z.string().min(6, "Password must be at least 6 characters."),
-});
-
-// For editing users, password is optional
-const editUserFormSchema = userFormSchemaBase.extend({
-  password: z.string().min(6, "Password must be at least 6 characters.").optional().or(z.literal('')), // Allow empty string for optional
-});
-
+type UserFormData = z.infer<typeof userFormSchema>;
 
 interface UserDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  user?: Omit<User, 'password'> | null; // For editing
-  onFormSubmit: () => void; // Callback to refresh data
+  user?: Omit<User, 'password'> | null; 
+  onFormSubmit: () => void; 
 }
 
 export function UserDialog({ open, onOpenChange, user, onFormSubmit }: UserDialogProps) {
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
   
-  const formSchema = user ? editUserFormSchema : newUserFormSchema;
-  type UserFormData = z.infer<typeof formSchema>;
-
   const form = useForm<UserFormData>({
-    resolver: zodResolver(formSchema),
+    resolver: zodResolver(userFormSchema),
     defaultValues: {
       username: "",
-      role: "operator",
+      role: "operator" as UserRole, // Cast to ensure it matches enum
       password: "",
       status: "active",
     },
   });
 
   useEffect(() => {
-    if (user) {
-      form.reset({
-        username: user.username,
-        role: user.role,
-        password: "", // Password field cleared for editing for security
-        status: user.status,
-      });
-    } else {
-      form.reset({
-        username: "",
-        role: "operator",
-        password: "",
-        status: "active",
-      });
+    if (open) { // Reset form only when dialog opens
+      if (user) {
+        form.reset({
+          username: user.username,
+          role: user.role as "operator" | "admin", // Ensure type compatibility
+          password: "", // Always clear password for editing for security
+          status: user.status,
+        });
+      } else {
+        form.reset({
+          username: "",
+          role: "operator" as UserRole,
+          password: "", // Expect password for new user
+          status: "active",
+        });
+      }
     }
   }, [user, form, open]);
 
@@ -97,13 +90,24 @@ export function UserDialog({ open, onOpenChange, user, onFormSubmit }: UserDialo
     setIsSubmitting(true);
     try {
       let response;
-      if (user && user.id) {
-        // For update, password is not part of the main data sent unless changed
-        const { password, ...updateData } = data; 
+      if (user && user.id) { // Editing existing user
+        const { password, ...updateData } = data;
         response = await updateUserAction(user.id, updateData);
-        // If password was entered, call a separate action (example)
-        // if (password) await updateUserPasswordAction(user.id, password);
-      } else {
+        if (response.success && password) { // If password was entered, try to update it
+          const passResponse = await updateUserPasswordAction(user.id, password);
+          if (!passResponse.success) {
+            toast({ variant: "destructive", title: "Password Update Failed", description: passResponse.message });
+            // Continue even if password update fails, main update might have succeeded
+          } else {
+            toast({ title: "Password Updated", description: "User's password changed successfully." });
+          }
+        }
+      } else { // Adding new user
+        if (!data.password) { // Password is required for new user
+          form.setError("password", { type: "manual", message: "Password is required for new users." });
+          setIsSubmitting(false);
+          return;
+        }
         response = await addUserAction(data as Omit<User, 'id'>); // Cast because new user data includes password
       }
 
@@ -117,14 +121,15 @@ export function UserDialog({ open, onOpenChange, user, onFormSubmit }: UserDialo
       } else {
         if (response.errors) {
            Object.entries(response.errors).forEach(([field, messages]) => {
-            form.setError(field as keyof UserFormData, { type: "server", message: (messages as string[]).join(", ") });
+            if (field === "_form") {
+                 toast({ variant: "destructive", title: "Operation Failed", description: (messages as string[]).join(", ") });
+            } else {
+                form.setError(field as keyof UserFormData, { type: "server", message: (messages as string[]).join(", ") });
+            }
           });
+        } else {
+            toast({ variant: "destructive", title: "Operation Failed", description: "Could not save user details."});
         }
-        toast({
-          variant: "destructive",
-          title: "Operation Failed",
-          description: "Please check the form for errors.",
-        });
       }
     } catch (error) {
       console.error("Failed to submit user form:", error);
@@ -142,9 +147,9 @@ export function UserDialog({ open, onOpenChange, user, onFormSubmit }: UserDialo
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[480px] bg-card shadow-xl">
         <DialogHeader>
-          <DialogTitle className="text-2xl font-semibold">{user ? "Edit User" : "Add New User"}</DialogTitle>
+          <DialogTitle className="text-2xl font-semibold">{user ? "Edit System User" : "Add New System User"}</DialogTitle>
           <DialogDescription>
-            {user ? "Update the details for this system user." : "Enter the details for the new system user."}
+            {user ? "Update the details for this system user." : "Enter the details for the new Admin or Operator user."}
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -156,7 +161,7 @@ export function UserDialog({ open, onOpenChange, user, onFormSubmit }: UserDialo
                 <FormItem>
                   <FormLabel>Username</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g. operator_jane" {...field} />
+                    <Input placeholder="e.g. operator_jane or admin_user" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -169,7 +174,7 @@ export function UserDialog({ open, onOpenChange, user, onFormSubmit }: UserDialo
                 <FormItem>
                   <FormLabel>Password {user ? "(Leave blank to keep current)" : ""}</FormLabel>
                   <FormControl>
-                    <Input type="password" placeholder="Enter password" {...field} />
+                    <Input type="password" placeholder={user ? "Enter new password" : "Enter password"} {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -182,7 +187,7 @@ export function UserDialog({ open, onOpenChange, user, onFormSubmit }: UserDialo
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Role</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
+                    <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger><SelectValue placeholder="Select role" /></SelectTrigger>
                       </FormControl>
@@ -201,7 +206,7 @@ export function UserDialog({ open, onOpenChange, user, onFormSubmit }: UserDialo
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Status</FormLabel>
-                  <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
+                  <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger><SelectValue placeholder="Select status" /></SelectTrigger>
                     </FormControl>

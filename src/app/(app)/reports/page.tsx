@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from "react";
@@ -17,7 +18,17 @@ import { ReportDisplay } from "@/components/reports/ReportDisplay";
 import { generateReportData } from "./actions";
 import { Download, FileText, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { initialDeliveries, initialFarmers } from "@/lib/mockData"; // For CSV export
+import jsPDF from 'jspdf';
+import 'jspdf-autotable'; // Ensure this import is present for the autoTable plugin
+import type { Delivery } from "@/types"; // For typing reportData if needed
+import { format } from 'date-fns';
+
+// Extend jsPDF with autoTable - this is usually done by importing 'jspdf-autotable'
+declare module 'jspdf' {
+  interface jsPDF {
+    autoTable: (options: any) => jsPDF;
+  }
+}
 
 export default function ReportsPage() {
   const [reportType, setReportType] = useState<'daily' | 'farmer' | 'monthly' | 'quality' | ''>('');
@@ -36,46 +47,82 @@ export default function ReportsPage() {
     setReportData(null);
     try {
       const data = await generateReportData(reportType, startDate, endDate);
-      setReportData(data);
+      if (data && 'error' in data && data.error) {
+        toast({ variant: "destructive", title: "Report Generation Failed", description: data.error });
+        setReportData(null);
+      } else {
+        setReportData(data);
+      }
     } catch (error) {
       console.error("Failed to generate report:", error);
       toast({ variant: "destructive", title: "Error", description: "Could not generate report data." });
+      setReportData(null);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const exportToCSV = () => {
-    if (!reportData || !reportType || reportData.error) {
+  const exportToPDF = () => {
+    if (!reportData || !reportType || (reportData && 'error' in reportData && reportData.error)) {
       toast({ title: "No Data", description: "Generate a report first to export.", variant: "default" });
       return;
     }
 
-    let csvContent = "data:text/csv;charset=utf-8,";
-    let fileName = `${reportType}_report_${new Date().toISOString().split('T')[0]}.csv`;
+    const doc = new jsPDF();
+    const periodString = `Period: ${startDate ? format(new Date(startDate+"T00:00:00"),'PP') : 'Start'} to ${endDate ? format(new Date(endDate+"T00:00:00"),'PP') : 'End'}`;
+    const fileName = `${reportType}_report_${new Date().toISOString().split('T')[0]}.pdf`;
+    let yPos = 20; // Initial Y position for text
+
+    doc.setFontSize(16);
+    doc.text(reportType.charAt(0).toUpperCase() + reportType.slice(1) + " Report", 14, yPos);
+    yPos += 7;
+    doc.setFontSize(10);
+    doc.text(periodString, 14, yPos);
+    yPos += 10;
+
 
     if (reportType === 'daily' && reportData.deliveries) {
-      csvContent += "Date,Time,Farmer,Quantity (L),Quality,Amount (UGX)\n";
-      reportData.deliveries.forEach((d: any) => {
-        csvContent += `${d.date},${d.time},"${d.farmerName}",${d.quantity},${d.quality},${d.amount}\n`;
-      });
+      const head = [["Date", "Time", "Farmer", "Qty (L)", "Quality", "Amount (UGX)"]];
+      const body = reportData.deliveries.map((d: Delivery) => [
+        format(new Date(d.date + 'T00:00:00'), 'PP'),
+        d.time,
+        d.farmerName || "N/A",
+        (d.quantity || 0).toFixed(1),
+        d.quality,
+        (d.amount || 0).toLocaleString()
+      ]);
+      doc.autoTable({ head, body, startY: yPos });
     } else if (reportType === 'farmer' && reportData.farmersData) {
-      csvContent += "Farmer Name,Deliveries Count,Total Liters (L),Amount Due (UGX)\n";
-      reportData.farmersData.forEach((f: any) => {
-        csvContent += `"${f.farmerName}",${f.deliveriesCount},${f.totalLiters},${f.amountDue}\n`;
-      });
+      const head = [["Farmer Name", "Deliveries", "Total Liters (L)", "Amount Due (UGX)"]];
+      const body = reportData.farmersData.map((f: any) => [
+        f.farmerName,
+        f.deliveriesCount || 0,
+        (f.totalLiters || 0).toFixed(1),
+        (f.amountDue || 0).toLocaleString()
+      ]);
+      doc.autoTable({ head, body, startY: yPos });
+    } else if (reportType === 'monthly' && reportData) {
+       doc.setFontSize(12);
+       doc.text("Summary:", 14, yPos); yPos += 7;
+       doc.setFontSize(10);
+       doc.text(`Total Deliveries: ${(reportData.totalDeliveries || 0).toLocaleString()}`, 14, yPos); yPos += 7;
+       doc.text(`Grade A Deliveries: ${(reportData.gradeACount || 0).toLocaleString()} (${(reportData.gradeALiters || 0).toFixed(1)} L)`, 14, yPos); yPos += 7;
+       doc.text(`Grade B Deliveries: ${(reportData.gradeBCount || 0).toLocaleString()} (${(reportData.gradeBLiters || 0).toFixed(1)} L)`, 14, yPos); yPos += 7;
+       doc.text(`Grade C Deliveries: ${(reportData.gradeCCount || 0).toLocaleString()} (${(reportData.gradeCLiters || 0).toFixed(1)} L)`, 14, yPos);
+    } else if (reportType === 'quality' && reportData) {
+       doc.setFontSize(12);
+       doc.text("Quality Analysis:", 14, yPos); yPos += 7;
+       doc.setFontSize(10);
+       doc.text(`Total Liters Analyzed: ${(reportData.totalLiters || 0).toFixed(1)} L`, 14, yPos); yPos += 7;
+       doc.text(`Grade A: ${(reportData.gradeALiters || 0).toFixed(1)} L (${(reportData.gradeAPercentage || 0).toFixed(1)}%)`, 14, yPos); yPos += 7;
+       doc.text(`Grade B: ${(reportData.gradeBLiters || 0).toFixed(1)} L (${(reportData.gradeBPercentage || 0).toFixed(1)}%)`, 14, yPos); yPos += 7;
+       doc.text(`Grade C: ${(reportData.gradeCLiters || 0).toFixed(1)} L (${(reportData.gradeCPercentage || 0).toFixed(1)}%)`, 14, yPos); yPos += 7;
+       doc.text(`Overall Quality Score: ${(reportData.qualityScore || 0).toFixed(1)}%`, 14, yPos);
     } else {
-       toast({ title: "Export Not Supported", description: `CSV export for '${reportType}' report is not fully implemented for this data structure.`, variant: "default" });
-       return;
+       doc.text("No data available for this report type or export not fully supported.", 14, yPos);
     }
     
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", fileName);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    doc.save(fileName);
   };
 
   return (
@@ -130,8 +177,8 @@ export default function ReportsPage() {
                 {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Generate Report
               </Button>
-              <Button onClick={exportToCSV} variant="outline" disabled={!reportData || reportData.error} className="w-full shadow-md">
-                 <Download className="mr-2 h-4 w-4" /> Export CSV
+              <Button onClick={exportToPDF} variant="outline" disabled={!reportData || (reportData && 'error' in reportData && reportData.error)} className="w-full shadow-md">
+                 <Download className="mr-2 h-4 w-4" /> Export PDF
               </Button>
             </div>
           </div>

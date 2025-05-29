@@ -5,9 +5,19 @@ import { getFirestore } from "firebase/firestore";
 // TODO: Add SDKs for Firebase products that you want to use
 // https://firebase.google.com/docs/web/setup#available-libraries
 
+// TypeScript declaration for Vite env variables
+interface ImportMetaEnv {
+  readonly VITE_GOOGLE_API_KEY: string;
+  // add other env variables here if needed
+}
+
+interface ImportMeta {
+  readonly env: ImportMetaEnv;
+}
+
 // Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: import.meta.env.google_api_key,
+  apiKey: "AIzaSyDLc0DpKSMs1ESUHYaqXYU3NmuVY7biRaw",
   authDomain: "dairyconnect-7b93a.firebaseapp.com",
   projectId: "dairyconnect-7b93a",
   storageBucket: "dairyconnect-7b93a.appspot.com", // Corrected from firebasestorage.app to appspot.com

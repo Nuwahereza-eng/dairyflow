@@ -38,7 +38,7 @@ export interface User { // This type is mainly for the mock users / settings pag
   id: string;
   username: string;
   role: UserRole;
-  password?: string; 
+  password?: string;
   status: 'active' | 'inactive';
 }
 
@@ -56,3 +56,5 @@ export interface AuthenticatedUser {
   role: UserRole;
   isFirebaseUser?: boolean; // True if authenticated via Firebase
 }
+
+export const DUMMY_EMAIL_DOMAIN = '@phone.dairyflow.com';

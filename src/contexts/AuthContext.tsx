@@ -2,12 +2,13 @@
 "use client";
 
 import type { AuthenticatedUser, UserRole } from '@/types';
+import { DUMMY_EMAIL_DOMAIN } from '@/types'; // Import the constant
 import React, { createContext, useState, useContext, ReactNode, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { 
-  getAuth, 
-  signInWithEmailAndPassword, 
-  signOut, 
+import {
+  getAuth,
+  signInWithEmailAndPassword,
+  signOut,
   onAuthStateChanged,
   User as FirebaseUser // Renaming to avoid conflict with our User type
 } from "firebase/auth";
@@ -32,29 +33,25 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser: FirebaseUser | null) => {
       if (firebaseUser) {
-        // User is signed in via Firebase (assumed to be a farmer for now)
         console.log("Firebase Auth State Changed: User detected", firebaseUser);
         const authenticatedUser: AuthenticatedUser = {
           uid: firebaseUser.uid,
-          username: firebaseUser.email || firebaseUser.phoneNumber || 'Farmer User', // Use email (which is phone for farmers)
-          role: 'farmer', // For now, assume any Firebase Auth user is a farmer
+          username: firebaseUser.email?.replace(DUMMY_EMAIL_DOMAIN, '') || firebaseUser.phoneNumber || 'Farmer User',
+          role: 'farmer',
           isFirebaseUser: true,
         };
         setCurrentUser(authenticatedUser);
         localStorage.setItem('currentUser', JSON.stringify(authenticatedUser));
       } else {
-        // User is signed out from Firebase
-        // Check if there's a mock user in localStorage (admin/operator)
         console.log("Firebase Auth State Changed: No user. Checking localStorage for mock user.");
         const storedUserString = localStorage.getItem('currentUser');
         if (storedUserString) {
           try {
             const storedUser: AuthenticatedUser = JSON.parse(storedUserString);
-            if (!storedUser.isFirebaseUser) { // Only restore if it's a mock user
+            if (!storedUser.isFirebaseUser) {
               setCurrentUser(storedUser);
               console.log("Restored mock user from localStorage:", storedUser);
             } else {
-              // Was a Firebase user, but now signed out from Firebase, so clear
               setCurrentUser(null);
               localStorage.removeItem('currentUser');
               console.log("Cleared Firebase user from localStorage as they are signed out from Firebase.");
@@ -70,23 +67,24 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
       setIsLoading(false);
     });
-
-    // Cleanup subscription on unmount
     return () => unsubscribe();
   }, []);
 
 
   const login = async (loginDetails: {role: UserRole, username: string, password: string}) => {
     setIsLoading(true);
-    const { role, username, password } = loginDetails;
+    const { role, username: rawUsername, password } = loginDetails;
+    const username = rawUsername.trim(); // Trim whitespace from input username
 
     if (role === 'farmer') {
       try {
-        const userCredential = await signInWithEmailAndPassword(auth, username, password); // username is phone/email
+        const emailForFirebase = username + DUMMY_EMAIL_DOMAIN;
+        console.log(`Attempting Firebase login for farmer with pseudo-email: ${emailForFirebase}`);
+        const userCredential = await signInWithEmailAndPassword(auth, emailForFirebase, password);
         const firebaseUser = userCredential.user;
         const authenticatedUser: AuthenticatedUser = {
           uid: firebaseUser.uid,
-          username: firebaseUser.email || 'Farmer', // Should be the phone number used as email
+          username: firebaseUser.email?.replace(DUMMY_EMAIL_DOMAIN, '') || 'Farmer',
           role: 'farmer',
           isFirebaseUser: true,
         };
@@ -95,10 +93,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         router.push('/dashboard');
       } catch (error: any) {
         console.error("Farmer Firebase login failed:", error);
-        setCurrentUser(null); // Ensure user is cleared on failed login
+        setCurrentUser(null);
         localStorage.removeItem('currentUser');
-        // Propagate error for LoginForm to display
-        throw error; 
+        throw error;
       } finally {
         setIsLoading(false);
       }
@@ -108,9 +105,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       );
       let passwordMatch = false;
       if (foundUser) {
-        // This is a simplified password check for mock users
-        if (username === 'admin' && password === 'adminpass') passwordMatch = true;
-        if (username === 'operator1' && password === 'op1pass') passwordMatch = true;
+        if (foundUser.username === 'admin' && password === 'adminpass') passwordMatch = true;
+        if (foundUser.username === 'operator1' && password === 'op1pass') passwordMatch = true;
+        // Add more specific mock user password checks if needed
       }
 
       if (foundUser && passwordMatch) {
@@ -123,7 +120,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         localStorage.setItem('currentUser', JSON.stringify(authenticatedUser));
         router.push('/dashboard');
       } else {
-         setCurrentUser(null); // Ensure user is cleared on failed login
+         setCurrentUser(null);
          localStorage.removeItem('currentUser');
          throw new Error("Invalid credentials or role selection for Admin/Operator.");
       }

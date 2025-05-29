@@ -4,14 +4,13 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import type { Farmer } from "@/types";
-import { DUMMY_EMAIL_DOMAIN } from "@/types"; // Import the constant
+import { DUMMY_EMAIL_DOMAIN } from "@/types";
 import { db, authAdmin } from "@/lib/firebaseAdmin";
 
-// Stricter phone validation for E.164, including the + sign.
 const farmerSchema = z.object({
   id: z.string().optional(),
   name: z.string().min(2, "Name must be at least 2 characters"),
-  phone: z.string().regex(/^\+[1-9]\d{7,14}$/, "Phone number must be in E.164 format (e.g., +256701234567)."),
+  phone: z.string().regex(/^\+[1-9]\d{7,14}$/, "Phone number must be in E.164 format (e.g., +256701234567). It will be used for login."),
   location: z.string().min(2, "Location must be at least 2 characters"),
   idNumber: z.string().optional().default(''),
   notes: z.string().optional().default(''),
@@ -20,15 +19,22 @@ const farmerSchema = z.object({
 
 const updateFarmerServerSchema = farmerSchema.partial().omit({ id: true, joinDate: true });
 
-
-export async function getFarmers(): Promise<Farmer[]> {
+export async function getFarmers(farmerId?: string): Promise<Farmer[]> {
   try {
-    const farmersSnapshot = await db.collection("farmers").orderBy("name").get();
-    const farmers: Farmer[] = [];
-    farmersSnapshot.forEach((doc) => {
-      farmers.push({ id: doc.id, ...doc.data() } as Farmer);
-    });
-    return farmers;
+    if (farmerId) {
+      const farmerDoc = await db.collection("farmers").doc(farmerId).get();
+      if (farmerDoc.exists) {
+        return [{ id: farmerDoc.id, ...farmerDoc.data() } as Farmer];
+      }
+      return []; // Farmer not found
+    } else {
+      const farmersSnapshot = await db.collection("farmers").orderBy("name").get();
+      const farmers: Farmer[] = [];
+      farmersSnapshot.forEach((doc) => {
+        farmers.push({ id: doc.id, ...doc.data() } as Farmer);
+      });
+      return farmers;
+    }
   } catch (error) {
     console.error("Error fetching farmers:", error);
     return [];
@@ -54,12 +60,13 @@ export async function addFarmerAction(data: Omit<Farmer, 'id' | 'joinDate'> & { 
     if (!existingFarmerQuery.empty) {
       return { success: false, errors: { phone: ["A farmer with this phone number already exists in the database."] } };
     }
-
-    const farmerRef = await db.collection("farmers").add(validatedData.data);
-    const newFarmer: Farmer = { id: farmerRef.id, ...validatedData.data };
+    
+    // Firestore ID will be generated automatically, or we can use a custom one if needed.
+    // For this setup, farmer's Firebase Auth UID will become their document ID in Firestore 'farmers' collection for simplicity.
 
     const defaultPassword = "Dairy!2345";
-    const emailForFirebase = validatedData.data.phone + DUMMY_EMAIL_DOMAIN;
+    const emailForFirebase = validatedData.data.phone.trim() + DUMMY_EMAIL_DOMAIN;
+    let firebaseUid = '';
 
     console.log(`Attempting to create Firebase Auth user. Pseudo-email: ${emailForFirebase}, Default Password: ${defaultPassword}`);
 
@@ -67,33 +74,33 @@ export async function addFarmerAction(data: Omit<Farmer, 'id' | 'joinDate'> & { 
       const createdUser = await authAdmin.createUser({
         email: emailForFirebase,
         password: defaultPassword,
-        displayName: newFarmer.name,
+        displayName: validatedData.data.name,
         emailVerified: true, 
       });
-      console.log(`Firebase Auth user created for ${newFarmer.name} (UID: ${createdUser.uid}) with pseudo-email: ${emailForFirebase}`);
-      // Log simulated Welcome SMS
-      console.log(`Simulated Welcome SMS to ${newFarmer.phone}: Welcome to DairyFlow, ${newFarmer.name}! Your Farmer ID is CF${newFarmer.id.substring(0,5).toUpperCase()}. You can login with your phone number and the default password: ${defaultPassword}`);
+      firebaseUid = createdUser.uid;
+      console.log(`Firebase Auth user created for ${validatedData.data.name} (UID: ${firebaseUid}) with pseudo-email: ${emailForFirebase}`);
+      console.log(`Default password for ${validatedData.data.name} is: ${defaultPassword}`);
     } catch (authError: any) {
-      console.error("Firebase Auth user creation failed for farmer:", newFarmer.phone, authError);
-      // Specific error handling for auth/email-already-exists
+      console.error("Firebase Auth user creation failed for farmer:", validatedData.data.phone, authError);
       if (authError.code === 'auth/email-already-exists') {
-         // It's possible the farmer was added to DB, but not to Auth. Or a user with this derived email already exists.
-         // This is a critical state; the farmer data might be orphaned in the DB without an auth user.
-         // For robustness, one might consider deleting the farmerRef if auth creation fails, or providing a specific admin action to resolve.
          return {
-          success: false, // Indicate overall failure if auth user can't be created as intended
+          success: false,
           errors: { phone: ["A user with this phone number (or derived email) already exists in the authentication system. Farmer not fully added."] },
-          warning: `Farmer ${newFarmer.name} data was added to database, but Firebase Auth user creation failed: ${authError.message}. Please resolve authentication conflict or delete the farmer data.`,
         };
       }
-      // For other auth errors, the farmer is added to DB, but auth user creation failed.
       return {
-        success: true, // Farmer added to DB
-        farmer: newFarmer,
-        warning: `Farmer ${newFarmer.name} added to database, but Firebase Auth user creation failed: ${authError.message}. Please create their login manually or retry.`
+        success: false, 
+        errors: { _form: [`Firebase Auth user creation failed: ${authError.message}. Farmer not added.`] }
       };
     }
 
+    // Use the Firebase Auth UID as the document ID in Firestore 'farmers' collection
+    const farmerRef = db.collection("farmers").doc(firebaseUid);
+    await farmerRef.set(validatedData.data);
+    const newFarmer: Farmer = { id: firebaseUid, ...validatedData.data };
+
+    console.log(`Simulated Welcome SMS to ${newFarmer.phone}: Welcome to DairyFlow, ${newFarmer.name}! Your login is your phone number. Password: ${defaultPassword}`);
+    
     revalidatePath("/farmers");
     return { success: true, farmer: newFarmer };
   } catch (error) {
@@ -128,28 +135,25 @@ export async function updateFarmerAction(id: string, data: Partial<Omit<Farmer, 
 
     await farmerDocRef.update(validatedData.data);
 
-    // If phone number changed, update Firebase Auth email
     if (validatedData.data.phone && validatedData.data.phone !== currentFarmerData.phone) {
         try {
-            const oldEmailForFirebase = currentFarmerData.phone + DUMMY_EMAIL_DOMAIN;
-            const newEmailForFirebase = validatedData.data.phone + DUMMY_EMAIL_DOMAIN;
+            const oldEmailForFirebase = currentFarmerData.phone.trim() + DUMMY_EMAIL_DOMAIN;
+            const newEmailForFirebase = validatedData.data.phone.trim() + DUMMY_EMAIL_DOMAIN;
             console.log(`Attempting to update Firebase Auth email for farmer ${id} from ${oldEmailForFirebase} to ${newEmailForFirebase}`);
-            const user = await authAdmin.getUserByEmail(oldEmailForFirebase);
-            await authAdmin.updateUser(user.uid, { email: newEmailForFirebase });
+            // The UID for updating is the farmer's ID (which is the Auth UID)
+            await authAdmin.updateUser(id, { email: newEmailForFirebase });
             console.log(`Updated Firebase Auth email for farmer ${id} to ${newEmailForFirebase}`);
         } catch (authError: any) {
             console.error(`Failed to update Firebase Auth email for farmer ${id}:`, authError);
-            // Decide if this error should be surfaced to the user or just logged
+             // Rollback Firestore phone update or log critical error
+            await farmerDocRef.update({ phone: currentFarmerData.phone }); // Attempt rollback
+            return { success: false, errors: { phone: [`Failed to update auth email: ${authError.message}. Phone update rolled back.`] } };
         }
     }
-    // If name changed, update Firebase Auth displayName
     if (validatedData.data.name && validatedData.data.name !== currentFarmerData.name) {
         try {
-            // Use the potentially new phone number if it was part of the update, otherwise the current one
-            const userEmailForAuthLookup = (validatedData.data.phone || currentFarmerData.phone) + DUMMY_EMAIL_DOMAIN;
-            console.log(`Attempting to update Firebase Auth displayName for farmer ${id} (lookup email: ${userEmailForAuthLookup}) to ${validatedData.data.name}`);
-            const user = await authAdmin.getUserByEmail(userEmailForAuthLookup);
-            await authAdmin.updateUser(user.uid, { displayName: validatedData.data.name });
+            console.log(`Attempting to update Firebase Auth displayName for farmer ${id} to ${validatedData.data.name}`);
+            await authAdmin.updateUser(id, { displayName: validatedData.data.name });
             console.log(`Updated Firebase Auth displayName for farmer ${id} to ${validatedData.data.name}`);
         } catch (authError: any) {
             console.error(`Failed to update Firebase Auth displayName for farmer ${id}:`, authError);
@@ -172,25 +176,27 @@ export async function deleteFarmerAction(id: string) {
     return { success: false, errors: { _form: ["Farmer ID is required for deletion."] } };
   }
   try {
-    const farmerDoc = await db.collection("farmers").doc(id).get();
+    const farmerDocRef = db.collection("farmers").doc(id);
+    const farmerDoc = await farmerDocRef.get();
     if (!farmerDoc.exists) {
       return { success: false, errors: { _form: ["Farmer not found."] } };
     }
-    const farmerData = farmerDoc.data() as Farmer;
+    // const farmerData = farmerDoc.data() as Farmer; // No longer needed for auth email
 
-    await db.collection("farmers").doc(id).delete();
+    await farmerDocRef.delete();
 
     try {
-      const emailForFirebase = farmerData.phone + DUMMY_EMAIL_DOMAIN;
-      console.log(`Attempting to delete Firebase Auth user for farmer ${farmerData.name} with pseudo-email: ${emailForFirebase}`);
-      const user = await authAdmin.getUserByEmail(emailForFirebase);
-      await authAdmin.deleteUser(user.uid);
-      console.log(`Firebase Auth user deleted for farmer ${farmerData.name} with pseudo-email: ${emailForFirebase}`);
+      // The farmer's ID (id) IS their Firebase Auth UID
+      console.log(`Attempting to delete Firebase Auth user for farmer UID: ${id}`);
+      await authAdmin.deleteUser(id);
+      console.log(`Firebase Auth user deleted for farmer UID: ${id}`);
     } catch (authError: any) {
       if (authError.code === 'auth/user-not-found') {
-        console.log(`Firebase Auth user for phone ${farmerData.phone} (pseudo-email ${emailForFirebase}) not found. No deletion needed or already deleted.`);
+        console.log(`Firebase Auth user for UID ${id} not found. No deletion needed or already deleted.`);
       } else {
-        console.error("Firebase Auth user deletion failed for farmer:", farmerData.phone, authError);
+        console.error("Firebase Auth user deletion failed for farmer UID:", id, authError);
+        // Potentially re-add farmer to Firestore if auth deletion fails critically, or log for manual cleanup
+         return { success: false, errors: { _form: [`Farmer data deleted from DB, but Firebase Auth user deletion failed: ${authError.message}. Please resolve manually.`] } };
       }
     }
 

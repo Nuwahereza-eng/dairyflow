@@ -28,17 +28,45 @@ async function calculateAmount(quantity: number, quality: 'A' | 'B' | 'C'): Prom
   return parseFloat((quantity * basePrice * priceMultiplier).toFixed(2));
 }
 
-export async function getDeliveries(): Promise<Delivery[]> {
+export async function getDeliveries(farmerId?: string): Promise<Delivery[]> {
   try {
-    const deliveriesSnapshot = await db.collection("deliveries").orderBy("date", "desc").orderBy("time", "desc").get();
+    let query: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> = db.collection("deliveries");
+    if (farmerId) {
+      query = query.where("farmerId", "==", farmerId);
+    }
+    // Always order, Firestore might require an index for farmerId + date + time if querying by farmerId
+    query = query.orderBy("date", "desc").orderBy("time", "desc");
+    
+    const deliveriesSnapshot = await query.get();
     const deliveries: Delivery[] = [];
+    
+    // Optimized farmer name fetching if not filtering by a single farmer
+    let farmersMap: Map<string, string> | null = null;
+    if (!farmerId) {
+        const allFarmersSnapshot = await db.collection("farmers").get();
+        farmersMap = new Map();
+        allFarmersSnapshot.forEach(doc => {
+            farmersMap!.set(doc.id, (doc.data() as Farmer).name);
+        });
+    }
+
     for (const doc of deliveriesSnapshot.docs) {
       const deliveryData = doc.data() as Omit<Delivery, 'id' | 'farmerName'>;
       let farmerName = "Unknown Farmer";
+
       if (deliveryData.farmerId) {
-        const farmerDoc = await db.collection("farmers").doc(deliveryData.farmerId).get();
-        if (farmerDoc.exists) {
-          farmerName = (farmerDoc.data() as Farmer).name;
+        if (farmersMap) { // Use pre-fetched map if available
+            farmerName = farmersMap.get(deliveryData.farmerId) || "Unknown Farmer (from map)";
+        } else if (farmerId && farmerId === deliveryData.farmerId) { // If fetching for a specific farmer, get their name
+            const farmerDoc = await db.collection("farmers").doc(deliveryData.farmerId).get();
+            if (farmerDoc.exists) {
+                farmerName = (farmerDoc.data() as Farmer).name;
+            }
+        } else if (!farmerId) { // Fallback if not filtering and map somehow wasn't created (should not happen)
+             const farmerDoc = await db.collection("farmers").doc(deliveryData.farmerId).get();
+            if (farmerDoc.exists) {
+                farmerName = (farmerDoc.data() as Farmer).name;
+            }
         }
       }
       deliveries.push({ 
@@ -50,7 +78,8 @@ export async function getDeliveries(): Promise<Delivery[]> {
     return deliveries;
   } catch (error) {
     console.error("Error fetching deliveries:", error);
-    return [];
+    // return []; // Keep throwing error to surface issues like missing indexes
+    throw error; 
   }
 }
 
@@ -73,9 +102,6 @@ export async function recordDeliveryAction(data: Omit<Delivery, 'id' | 'amount' 
         ...deliveryDataToSave, 
     };
 
-    // TODO: When payments are migrated to Firestore, update payment logic here.
-    // For now, direct payment updates are commented out.
-
     let farmer: Farmer | null = null;
     const farmerDoc = await db.collection("farmers").doc(newDelivery.farmerId).get();
     if (farmerDoc.exists) {
@@ -87,7 +113,7 @@ export async function recordDeliveryAction(data: Omit<Delivery, 'id' | 'amount' 
     if (farmer && farmer.name && farmer.phone && currentSystemSettings.smsProvider !== 'none') {
       try {
         const smsResult = await sendDeliveryNotification({
-          farmerName: farmer.name,
+          farmerName: farmer.name, // Pass farmer's name
           phoneNumber: farmer.phone,
           quantity: newDelivery.quantity,
           quality: newDelivery.quality,
@@ -107,7 +133,6 @@ export async function recordDeliveryAction(data: Omit<Delivery, 'id' | 'amount' 
 
     revalidatePath("/deliveries");
     revalidatePath("/dashboard");
-    // revalidatePath("/payments"); 
     return { success: true, delivery: { ...newDelivery, farmerName: farmer?.name } };
   } catch (error) {
     console.error("Error recording delivery:", error);
@@ -137,18 +162,15 @@ export async function updateDeliveryAction(id: string, data: Partial<Omit<Delive
     
     const dataToUpdate: Partial<Omit<Delivery, 'id' | 'farmerName'>> = {
         ...updatedFields,
-        farmerId: updatedFields.farmerId ?? originalDeliveryData.farmerId, // ensure farmerId is present
+        farmerId: updatedFields.farmerId ?? originalDeliveryData.farmerId,
         quantity: newQuantity,
         quality: newQuality,
         amount: newAmount
     };
     await deliveryRef.update(dataToUpdate);
 
-    // TODO: When payments are migrated to Firestore, update payment adjustment logic here.
-
     revalidatePath("/deliveries");
     revalidatePath("/dashboard");
-    // revalidatePath("/payments");
 
     const updatedDeliveryDoc = await deliveryRef.get();
     const finalDeliveryData = updatedDeliveryDoc.data() as Omit<Delivery, 'id' | 'farmerName'>;
@@ -177,11 +199,8 @@ export async function deleteDeliveryAction(id: string) {
 
     await deliveryRef.delete();
 
-    // TODO: When payments are migrated to Firestore, update payment adjustment logic here.
-
     revalidatePath("/deliveries");
     revalidatePath("/dashboard");
-    // revalidatePath("/payments"); 
     return { success: true };
   } catch (error) {
     console.error("Error deleting delivery:", error);

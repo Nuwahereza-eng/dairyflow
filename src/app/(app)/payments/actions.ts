@@ -7,17 +7,44 @@ import { db } from "@/lib/firebaseAdmin";
 import { sendPaymentNotification } from '@/ai/flows/payment-notification';
 import { getSystemSettings } from '@/app/(app)/settings/actions';
 
-export async function getPayments(): Promise<Payment[]> {
+export async function getPayments(farmerId?: string): Promise<Payment[]> {
   try {
-    const paymentsSnapshot = await db.collection("payments").get(); // Consider ordering later if needed
+    let query: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> = db.collection("payments");
+    if (farmerId) {
+      query = query.where("farmerId", "==", farmerId);
+    }
+    // Consider adding orderBy clauses if needed, e.g., query.orderBy("period", "desc");
+    // This might require a new Firestore index if combined with the farmerId filter.
+
+    const paymentsSnapshot = await query.get();
     const payments: Payment[] = [];
+
+    // Optimized farmer name fetching
+    let farmersMap: Map<string, string> | null = null;
+    if (!farmerId) { // Only fetch all farmers if not filtering for a specific one
+        const allFarmersSnapshot = await db.collection("farmers").get();
+        farmersMap = new Map();
+        allFarmersSnapshot.forEach(doc => {
+            farmersMap!.set(doc.id, (doc.data() as Farmer).name);
+        });
+    }
+
     for (const doc of paymentsSnapshot.docs) {
       const paymentData = doc.data() as Omit<Payment, 'id' | 'farmerName'>;
       let farmerName = "Unknown Farmer";
       if (paymentData.farmerId) {
-        const farmerDoc = await db.collection("farmers").doc(paymentData.farmerId).get();
-        if (farmerDoc.exists) {
-          farmerName = (farmerDoc.data() as Farmer).name;
+         if (farmersMap) {
+            farmerName = farmersMap.get(paymentData.farmerId) || "Unknown Farmer (map)";
+        } else if (farmerId && farmerId === paymentData.farmerId) { // If fetching for a specific farmer
+            const farmerDoc = await db.collection("farmers").doc(paymentData.farmerId).get();
+            if (farmerDoc.exists) {
+                farmerName = (farmerDoc.data() as Farmer).name;
+            }
+        } else if (!farmerId) { // Fallback if not filtering by farmer (should ideally use map)
+            const farmerDoc = await db.collection("farmers").doc(paymentData.farmerId).get();
+            if (farmerDoc.exists) {
+                farmerName = (farmerDoc.data() as Farmer).name;
+            }
         }
       }
       payments.push({ 
@@ -26,12 +53,12 @@ export async function getPayments(): Promise<Payment[]> {
         farmerName 
       });
     }
-    // You might want to sort payments here, e.g., by period or farmerName
+    // Example sort if needed, adjust as per requirements
     // payments.sort((a, b) => (a.period > b.period ? -1 : 1) || (a.farmerName?.localeCompare(b.farmerName || '') || 0) );
     return payments;
   } catch (error) {
     console.error("Error fetching payments:", error);
-    throw error; // Rethrow or handle as appropriate for your UI
+    throw error; 
   }
 }
 
@@ -93,8 +120,6 @@ export async function processSinglePaymentAction(paymentId: string): Promise<{ s
 
 export async function processAllPendingPaymentsAction(): Promise<{ success: boolean; count: number; message?: string }> {
   try {
-    // This query will likely require a composite index on 'status'.
-    // Firestore will provide an error with a link to create it if it's missing.
     const pendingPaymentsSnapshot = await db.collection("payments").where("status", "==", "pending").get();
     
     if (pendingPaymentsSnapshot.empty) {
@@ -103,6 +128,15 @@ export async function processAllPendingPaymentsAction(): Promise<{ success: bool
 
     const currentSystemSettings = await getSystemSettings();
     let processedCount = 0;
+
+    // Batch farmer lookups for efficiency
+    const farmerIdsToFetch = Array.from(new Set(pendingPaymentsSnapshot.docs.map(doc => (doc.data() as Payment).farmerId).filter(id => id)));
+    const farmersData = new Map<string, Farmer>();
+    if(farmerIdsToFetch.length > 0) {
+        const farmerDocs = await db.collection('farmers').where(db.FieldPath.documentId(), 'in', farmerIdsToFetch).get();
+        farmerDocs.forEach(doc => farmersData.set(doc.id, {id: doc.id, ...doc.data()} as Farmer));
+    }
+
 
     for (const doc of pendingPaymentsSnapshot.docs) {
       const payment = { id: doc.id, ...doc.data() } as Payment;
@@ -114,13 +148,7 @@ export async function processAllPendingPaymentsAction(): Promise<{ success: bool
       });
       processedCount++;
 
-      let farmer: Farmer | null = null;
-      if (payment.farmerId) {
-          const farmerDoc = await db.collection("farmers").doc(payment.farmerId).get();
-          if (farmerDoc.exists) {
-              farmer = {id: farmerDoc.id, ...farmerDoc.data()} as Farmer;
-          }
-      }
+      const farmer = payment.farmerId ? farmersData.get(payment.farmerId) : null;
 
       if (farmer && farmer.phone && currentSystemSettings.smsProvider !== 'none') {
         try {
@@ -147,10 +175,9 @@ export async function processAllPendingPaymentsAction(): Promise<{ success: bool
     return { success: true, count: processedCount, message: `${processedCount} payments processed.` };
   } catch (error: any) {
     console.error("Error processing all pending payments:", error);
-    if (error.code === 9 /* FAILED_PRECONDITION for missing index */) {
+    if (error.code === 9 /* FAILED_PRECONDITION for missing index */ || error.code === 5 /* FAILED_PRECONDITION also used for missing index */) {
          return { success: false, count: 0, message: `Query requires an index. Please create it in Firestore. Details: ${error.details || error.message}` };
     }
     return { success: false, count: 0, message: "Failed to process payments due to a server error." };
   }
 }
-

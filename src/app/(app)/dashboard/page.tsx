@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/shared/PageHeader";
-import type { Farmer, Delivery, Payment } from '@/types';
+import type { Farmer, Delivery, Payment, AuthenticatedUser } from '@/types';
 import { Users, Truck, Package, CreditCard, Activity, Loader2 } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { format } from 'date-fns';
@@ -12,6 +12,7 @@ import { getFarmers } from '@/app/(app)/farmers/actions';
 import { getDeliveries } from '@/app/(app)/deliveries/actions';
 import { getPayments } from '@/app/(app)/payments/actions';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface StatCardProps {
   title: string;
@@ -45,32 +46,58 @@ export default function DashboardPage() {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const { toast } = useToast();
+  const { currentUser } = useAuth(); // Get current user
 
   useEffect(() => {
     async function fetchData() {
+      if (!currentUser) {
+        setIsLoading(false);
+        return;
+      }
       setIsLoading(true);
       try {
-        const [farmersData, deliveriesData, paymentsData] = await Promise.all([
-          getFarmers(),
-          getDeliveries(),
-          getPayments(),
-        ]);
+        let farmersData: Farmer[];
+        let deliveriesData: Delivery[];
+        let paymentsData: Payment[];
+
+        if (currentUser.role === 'farmer' && currentUser.uid) {
+          // Farmer: Fetch only their own data
+          [farmersData, deliveriesData, paymentsData] = await Promise.all([
+            getFarmers(currentUser.uid), // Fetch only current farmer
+            getDeliveries(currentUser.uid), // Fetch deliveries for current farmer
+            getPayments(currentUser.uid),   // Fetch payments for current farmer
+          ]);
+        } else {
+          // Admin/Operator: Fetch all data
+          [farmersData, deliveriesData, paymentsData] = await Promise.all([
+            getFarmers(),
+            getDeliveries(),
+            getPayments(),
+          ]);
+        }
+        
         setFarmers(farmersData);
         setDeliveries(deliveriesData);
         setPayments(paymentsData);
-      } catch (error) {
+
+      } catch (error: any) {
         console.error("Failed to fetch dashboard data:", error);
+        let errorMessage = "Could not load dashboard data from the server.";
+        if (error.code === 9 || error.code === 5) { // Firestore FAILED_PRECONDITION (missing index)
+            errorMessage = `Data query failed: ${error.message}. A Firestore index might be required. Check server logs for a creation link.`;
+        }
         toast({
           variant: "destructive",
           title: "Error Fetching Data",
-          description: "Could not load dashboard data from the server.",
+          description: errorMessage,
+          duration: 7000,
         });
       } finally {
         setIsLoading(false);
       }
     }
     fetchData();
-  }, [toast]);
+  }, [toast, currentUser]);
 
   if (isLoading) {
     return (
@@ -81,6 +108,8 @@ export default function DashboardPage() {
       </div>
     );
   }
+  
+  const isFarmerView = currentUser?.role === 'farmer';
 
   const today = format(new Date(), 'yyyy-MM-dd');
   const todaysDeliveries = deliveries.filter(d => d.date === today);
@@ -89,7 +118,6 @@ export default function DashboardPage() {
 
   const recentActivities = deliveries
     .sort((a, b) => {
-      // Combine date and time for accurate sorting, handling potential nulls
       const dateTimeA = new Date(`${a.date}T${a.time || '00:00:00'}`).getTime();
       const dateTimeB = new Date(`${b.date}T${b.time || '00:00:00'}`).getTime();
       return dateTimeB - dateTimeA;
@@ -98,10 +126,13 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Dashboard" description="Overview of your dairy operations." />
+      <PageHeader title="Dashboard" description={`Overview of ${isFarmerView ? 'your' : 'dairy'} operations.`} />
       
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-        <StatCard title="Total Farmers" value={farmers.length} icon={Users} description="Registered in the system" />
+        {!isFarmerView && <StatCard title="Total Farmers" value={farmers.length} icon={Users} description="Registered in the system" />}
+        {isFarmerView && farmers.length === 1 && (
+             <StatCard title="Your Profile" value={farmers[0].name} icon={Users} description={`ID: ${farmers[0].id.substring(0,8)}...`} />
+        )}
         <StatCard title="Today's Deliveries" value={todaysDeliveries.length} icon={Truck} description={`On ${format(new Date(), 'PPP')}`} />
         <StatCard title="Today's Collection" value={`${todaysLiters.toFixed(1)} L`} icon={Package} description="Total milk quantity today" />
         <StatCard title="Pending Payments" value={pendingPaymentsCount} icon={CreditCard} description="Awaiting processing" />
@@ -123,7 +154,7 @@ export default function DashboardPage() {
                     <Truck className="h-5 w-5 text-primary flex-shrink-0 mt-1" />
                     <div>
                       <p className="text-sm font-medium text-foreground">
-                        {activity.farmerName || 'Unknown Farmer'} delivered {activity.quantity}L (Grade {activity.quality})
+                        {isFarmerView ? `You delivered ${activity.quantity}L (Grade ${activity.quality})` : `${activity.farmerName || 'Unknown Farmer'} delivered ${activity.quantity}L (Grade ${activity.quality})`}
                       </p>
                       <p className="text-xs text-muted-foreground">
                         {format(new Date(`${activity.date}T${activity.time || '00:00:00'}`), 'PPpp')}
@@ -134,7 +165,9 @@ export default function DashboardPage() {
               </ul>
             </ScrollArea>
           ) : (
-            <p className="text-muted-foreground text-center py-4">No recent milk deliveries recorded.</p>
+            <p className="text-muted-foreground text-center py-4">
+                {isFarmerView ? "You have no recent milk deliveries." : "No recent milk deliveries recorded."}
+            </p>
           )}
         </CardContent>
       </Card>

@@ -7,7 +7,7 @@ import '@/ai/flows/sms-notifications.ts';
 import '@/ai/flows/payment-notification.ts';
 
 // --- TEMPORARY SCRIPT TO SET CUSTOM CLAIM ---
-// IMPORTANT: 
+// IMPORTANT:
 // 1. Replace 'USER_UID_TO_SET_ADMIN_CLAIM' below with the actual User UID of peter@admin.dairyflow.com.
 // 2. Ensure your FIREBASE_SERVICE_ACCOUNT_KEY_JSON is correctly set in your .env file.
 // 3. Run `npm run genkit:dev` (or `npm run genkit:watch`) ONCE.

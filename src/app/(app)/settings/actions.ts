@@ -38,7 +38,6 @@ export async function getSystemSettings(): Promise<SystemSettings> {
       return settingsDoc.data() as SystemSettings;
     } else {
       console.log("No system settings found in Firestore. Creating with defaults and returning them.");
-      // Use a copy of initialSystemSettings to avoid modifying the imported object
       const defaultsToSave: SystemSettings = {
         milkPricePerLiter: initialSystemSettings.milkPricePerLiter,
         smsProvider: initialSystemSettings.smsProvider,
@@ -52,7 +51,6 @@ export async function getSystemSettings(): Promise<SystemSettings> {
   } catch (error) {
     console.error("Error fetching or creating system settings:", error);
     console.warn("Falling back to initialSystemSettings due to Firestore error.");
-    // Return a copy to avoid potential modification issues if initialSystemSettings is used elsewhere
     return { ...initialSystemSettings };
   }
 }
@@ -71,14 +69,11 @@ export async function saveSystemSettingsAction(data: Partial<SystemSettings>) {
 
     revalidatePath("/settings");
 
-    // Fetch the updated settings to return
     const updatedSettingsDoc = await settingsDocRef.get();
     if (updatedSettingsDoc.exists) { // Corrected: .exists is a property, not a function
       return { success: true, settings: updatedSettingsDoc.data() as SystemSettings };
     }
-    // Should not happen if set was successful, but as a fallback
     console.warn("Updated settings document not found immediately after save. This is unexpected.");
-    // Return a merged object of initial settings and the data that was supposed to be saved
     return { success: true, settings: { ...initialSystemSettings, ...validatedData.data } };
 
   } catch (error: any) {
@@ -95,8 +90,8 @@ export async function getUsers(): Promise<Omit<User, 'password'>[]> {
     for (const userRecord of listUsersResult.users) {
       const role = userRecord.customClaims?.role as UserRole;
       if (role === 'admin' || role === 'operator') {
-        let plainUsername = userRecord.displayName || userRecord.uid; // Default to displayName
-        if (userRecord.email) { // Attempt to strip domain if email exists
+        let plainUsername = userRecord.displayName || userRecord.uid;
+        if (userRecord.email) {
             if (role === 'admin' && userRecord.email.endsWith(ADMIN_EMAIL_DOMAIN)) {
                 plainUsername = userRecord.email.replace(ADMIN_EMAIL_DOMAIN, '');
             } else if (role === 'operator' && userRecord.email.endsWith(OPERATOR_EMAIL_DOMAIN)) {
@@ -123,6 +118,9 @@ export async function getUsers(): Promise<Omit<User, 'password'>[]> {
 export async function addUserAction(data: Omit<User, 'id'>) {
   const newUserSchema = appUserSchema.extend({
     password: z.string().min(6, "Password must be at least 6 characters."),
+  }).refine(s => !s.username.includes('@'), {
+    message: "Username cannot contain '@' symbol.",
+    path: ["username"],
   });
   const validatedData = newUserSchema.safeParse(data);
 
@@ -133,7 +131,7 @@ export async function addUserAction(data: Omit<User, 'id'>) {
   const { username, role, password, status } = validatedData.data;
   const emailDomain = role === 'admin' ? ADMIN_EMAIL_DOMAIN : OPERATOR_EMAIL_DOMAIN;
   const emailForFirebase = username.trim() + emailDomain;
-  const defaultPassword = password;
+  const defaultPassword = password; // Password now comes from the form
 
   try {
     console.log(`Attempting to create Firebase Auth user for ${role}. Pseudo-email: ${emailForFirebase}`);
@@ -142,11 +140,13 @@ export async function addUserAction(data: Omit<User, 'id'>) {
       password: defaultPassword,
       displayName: username,
       disabled: status === 'inactive',
-      emailVerified: true,
+      emailVerified: true, // Consider if email verification is needed/meaningful for pseudo-emails
     });
 
     await authAdmin.setCustomUserClaims(userRecord.uid, { role });
-    console.log(`Firebase Auth user ${username} (UID: ${userRecord.uid}) created with role ${role}. Default password: ${defaultPassword}`);
+    console.log(
+      `Firebase Auth user ${username} (UID: ${userRecord.uid}) created with pseudo-email: ${emailForFirebase}, role: ${role}. Default password set was: ${defaultPassword}`
+    );
 
     revalidatePath("/settings");
     return {
@@ -172,7 +172,6 @@ export async function addUserAction(data: Omit<User, 'id'>) {
 }
 
 export async function updateUserAction(id: string, data: Partial<Omit<User, 'id' | 'password'>>) {
-  // Username cannot contain '@', role and status are enums.
   const partialUserSchema = appUserSchema.pick({username: true, role: true, status: true}).partial();
   const validatedData = partialUserSchema.safeParse(data);
 
@@ -184,42 +183,46 @@ export async function updateUserAction(id: string, data: Partial<Omit<User, 'id'
 
   try {
     const updates: any = {};
-    const currentUserRecord = await authAdmin.getUser(id); // Get current user to compare email/displayName
+    const currentUserRecord = await authAdmin.getUser(id);
 
     if (username && username !== currentUserRecord.displayName) {
       updates.displayName = username;
-      // If username (which forms basis of email) changes, update email too
-      const oldEmail = currentUserRecord.email;
       const currentRole = currentUserRecord.customClaims?.role as UserRole;
-      let newEmail = oldEmail; // Default to old email if role doesn't change or isn't admin/op
+      let newEmail = currentUserRecord.email; 
 
-      if (currentRole === 'admin' && oldEmail?.endsWith(ADMIN_EMAIL_DOMAIN)) {
+      if (currentRole === 'admin' && currentUserRecord.email?.endsWith(ADMIN_EMAIL_DOMAIN)) {
         newEmail = username + ADMIN_EMAIL_DOMAIN;
-      } else if (currentRole === 'operator' && oldEmail?.endsWith(OPERATOR_EMAIL_DOMAIN)) {
+      } else if (currentRole === 'operator' && currentUserRecord.email?.endsWith(OPERATOR_EMAIL_DOMAIN)) {
         newEmail = username + OPERATOR_EMAIL_DOMAIN;
       }
       
-      if (newEmail && newEmail !== oldEmail) {
+      if (newEmail && newEmail !== currentUserRecord.email) {
         updates.email = newEmail;
       }
     }
     if (status) updates.disabled = status === 'inactive';
 
-    await authAdmin.updateUser(id, updates);
-    console.log(`Firebase Auth user ${id} updated with:`, updates);
+    if(Object.keys(updates).length > 0) {
+        await authAdmin.updateUser(id, updates);
+        console.log(`Firebase Auth user ${id} updated with:`, updates);
+    }
 
 
-    if (role) {
+    if (role && role !== currentUserRecord.customClaims?.role) {
       await authAdmin.setCustomUserClaims(id, { role });
        console.log(`Firebase Auth user ${id} custom claims updated to role: ${role}`);
     }
 
     const updatedUserRecord = await authAdmin.getUser(id);
-    const updatedPlainUsername = updatedUserRecord.email ? 
-                                ( (updatedUserRecord.customClaims?.role === 'admin' && updatedUserRecord.email.endsWith(ADMIN_EMAIL_DOMAIN)) ? updatedUserRecord.email.replace(ADMIN_EMAIL_DOMAIN, '') :
-                                  (updatedUserRecord.customClaims?.role === 'operator' && updatedUserRecord.email.endsWith(OPERATOR_EMAIL_DOMAIN)) ? updatedUserRecord.email.replace(OPERATOR_EMAIL_DOMAIN, '') :
-                                  updatedUserRecord.displayName ) // Fallback to displayName if domain doesn't match
-                                : updatedUserRecord.displayName || updatedUserRecord.uid;
+    let updatedPlainUsername = updatedUserRecord.displayName || updatedUserRecord.uid;
+    if (updatedUserRecord.email) {
+        const userActualRole = updatedUserRecord.customClaims?.role as UserRole;
+        if (userActualRole === 'admin' && updatedUserRecord.email.endsWith(ADMIN_EMAIL_DOMAIN)) {
+            updatedPlainUsername = updatedUserRecord.email.replace(ADMIN_EMAIL_DOMAIN, '');
+        } else if (userActualRole === 'operator' && updatedUserRecord.email.endsWith(OPERATOR_EMAIL_DOMAIN)) {
+            updatedPlainUsername = updatedUserRecord.email.replace(OPERATOR_EMAIL_DOMAIN, '');
+        }
+    }
 
 
     revalidatePath("/settings");
@@ -267,7 +270,7 @@ export async function updateUserPasswordAction(id: string, newPassword: string) 
   }
   try {
     await authAdmin.updateUser(id, { password: newPassword });
-    revalidatePath("/settings");
+    revalidatePath("/settings"); // Not strictly necessary for password but good for consistency
     return { success: true, message: "Password updated successfully for user." };
   } catch (error: any) {
     console.error("Error updating user password in Firebase Auth:", error);
@@ -277,3 +280,5 @@ export async function updateUserPasswordAction(id: string, newPassword: string) 
     return { success: false, message: `Password update failed: ${error.message}` };
   }
 }
+
+

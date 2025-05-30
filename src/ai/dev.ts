@@ -9,18 +9,18 @@ import '@/ai/flows/payment-notification.ts';
 
 // --- TEMPORARY SCRIPT TO SET CUSTOM CLAIM ---
 // IMPORTANT:
-// 1. Replace 'USER_UID_TO_SET_ADMIN_CLAIM' below with the actual User UID of peter@admin.dairyflow.com.
+// 1. Replace 'A54rWWPfcVhDwcDekfznY55m1dr1' below with the actual User UID of the user you want to make an admin (e.g., peter@admin.dairyflow.com).
 // 2. Ensure your FIREBASE_SERVICE_ACCOUNT_KEY_JSON is correctly set in your .env file.
 // 3. Run `npm run genkit:dev` (or `npm run genkit:watch`) ONCE.
 // 4. Check the console output for success.
 // 5. After successful execution, REMOVE OR COMMENT OUT this entire script block.
 (async () => {
-  const userUID = 'A54rWWPfcVhDwcDekfznY55m1dr1'; // <--- !!! PASTE THE UID HERE !!!
+  const userUID = 'A54rWWPfcVhDwcDekfznY55m1dr1'; // <--- !!! PASTE THE UID OF THE USER HERE (e.g., peter@admin.dairyflow.com's UID) !!!
   const desiredRole = 'admin';
 
-  if (userUID === 'A54rWWPfcVhDwcDekfznY55m1dr1') {
+  if (userUID === 'A54rWWPfcVhDwcDekfznY55m1dr1') { // Check against the specific placeholder
     console.warn(
-      '\n[Custom Claim Script] SKIPPING: Please replace "USER_UID_TO_SET_ADMIN_CLAIM" in src/ai/dev.ts with the actual User UID.\n'
+      '\n[Custom Claim Script] SKIPPING: Please replace "A54rWWPfcVhDwcDekfznY55m1dr1" in src/ai/dev.ts with the actual User UID you want to make an admin.\n'
     );
     return;
   }

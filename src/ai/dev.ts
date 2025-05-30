@@ -1,5 +1,3 @@
-
-
 import { config } from 'dotenv';
 config(); // Ensure environment variables are loaded first
 

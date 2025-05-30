@@ -1,7 +1,7 @@
 
 'use server';
 
-import { db } from '@/lib/firebaseAdmin';
+import { db, admin } from '@/lib/firebaseAdmin'; // Import admin
 import type { Delivery, Farmer } from '@/types';
 import { format } from 'date-fns';
 
@@ -80,7 +80,8 @@ export async function getRecentDeliveriesForDashboard(limit: number, currentUser
 
   if (farmerIds.length > 0) {
     // Fetch names only for the farmers involved in these recent deliveries
-    const farmersSnapshot = await db.collection('farmers').where(db.FieldPath.documentId(), 'in', farmerIds).get();
+    // Use admin.firestore.FieldPath.documentId()
+    const farmersSnapshot = await db.collection('farmers').where(admin.firestore.FieldPath.documentId(), 'in', farmerIds).get();
     farmersSnapshot.forEach(doc => {
       farmersMap.set(doc.id, (doc.data() as Farmer).name);
     });

@@ -44,7 +44,7 @@ export function LoginForm() {
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      role: 'farmer', // Default to farmer for easier testing of new Firebase auth
+      role: 'farmer',
       username: '',
       password: '',
     },
@@ -54,25 +54,25 @@ export function LoginForm() {
     setIsLoading(true);
     setLoginError(null);
     try {
-      await login({ 
-        role: values.role as UserRole, 
-        username: values.username, 
-        password: values.password 
+      await login({
+        role: values.role as UserRole,
+        username: values.username,
+        password: values.password
       });
       toast({
         title: "Login Successful",
-        description: `Welcome, ${values.username}!`,
+        description: `Welcome! Redirecting to dashboard...`,
       });
       // AuthContext will handle navigation
     } catch (error: any) {
       console.error("Login form submission error:", error);
       let errorMessage = "Login failed. Please check your credentials and role.";
       if (error.code === 'auth/invalid-credential' || error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
-        errorMessage = "Invalid phone number or password for farmer.";
+        errorMessage = "Invalid username or password for the selected role.";
       } else if (error.message) {
-        errorMessage = error.message; // Use message from AuthContext for mock users
+        errorMessage = error.message;
       }
-      setLoginError(errorMessage); // Display error message below the form
+      setLoginError(errorMessage);
       toast({
         variant: "destructive",
         title: "Login Failed",
@@ -82,6 +82,19 @@ export function LoginForm() {
       setIsLoading(false);
     }
   }
+
+  const handleForgotPassword = () => {
+    toast({
+      title: "Password Reset",
+      description: (
+        <div className="space-y-2">
+          <p><strong>Farmers:</strong> Please contact your MCC operator or DairyFlow administrator to help reset your password.</p>
+          <p><strong>MCC Operators & System Admins:</strong> Please contact another System Administrator to reset your password through the User Management settings.</p>
+        </div>
+      ),
+      duration: 10000, // Keep message visible longer
+    });
+  };
 
   return (
     <Form {...form}>
@@ -141,6 +154,11 @@ export function LoginForm() {
           {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
           Login
         </Button>
+        <div className="text-center text-sm">
+          <Button variant="link" type="button" onClick={handleForgotPassword} className="p-0 h-auto font-normal">
+            Forgot Password?
+          </Button>
+        </div>
       </form>
     </Form>
   );

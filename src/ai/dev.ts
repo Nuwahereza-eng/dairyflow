@@ -12,9 +12,9 @@ import '@/ai/flows/payment-notification.ts';
 // 3. Run `npm run genkit:dev` (or `npm run genkit:watch`) ONCE.
 // 4. Check the console output for success.
 // 5. After successful execution, REMOVE OR COMMENT OUT this entire script block.
-(async () => {
-  const userUID = '0iM3zNNoSfZQNSmE9MQuPfp8B8x1'; // <--- !!! PASTE THE UID OF THE USER HERE (e.g., peter@admin.dairyflow.com's UID) !!!
-  const desiredRole = 'admin';
+// (async () => {
+//   const userUID = '0iM3zNNoSfZQNSmE9MQuPfp8B8x1'; // <--- !!! PASTE THE UID OF THE USER HERE (e.g., peter@admin.dairyflow.com's UID) !!!
+//   const desiredRole = 'admin';
 
   // if (userUID === '0iM3zNNoSfZQNSmE9MQuPfp8B8x1') { // Check against the specific placeholder
   //   console.warn(
@@ -23,22 +23,22 @@ import '@/ai/flows/payment-notification.ts';
   //   return;
   // }
 
-  if (!authAdmin) {
-    console.error(
-      '[Custom Claim Script] Firebase Admin SDK (authAdmin) is not available. ' +
-      'This might be because `firebaseAdmin.ts` had an issue during initialization ' +
-      '(e.g., FIREBASE_SERVICE_ACCOUNT_KEY_JSON missing or invalid in .env). ' +
-      'The script cannot run.'
-    );
-    return;
-  }
+//   if (!authAdmin) {
+//     console.error(
+//       '[Custom Claim Script] Firebase Admin SDK (authAdmin) is not available. ' +
+//       'This might be because `firebaseAdmin.ts` had an issue during initialization ' +
+//       '(e.g., FIREBASE_SERVICE_ACCOUNT_KEY_JSON missing or invalid in .env). ' +
+//       'The script cannot run.'
+//     );
+//     return;
+//   }
 
-  try {
-    console.log(`[Custom Claim Script] Attempting to set role '${desiredRole}' for user UID: ${userUID}`);
-    await authAdmin.setCustomUserClaims(userUID, { role: desiredRole });
-    console.log(`[Custom Claim Script] Successfully set role '${desiredRole}' for user UID: ${userUID}`);
-    console.log(`[Custom Claim Script] You should now REMOVE or COMMENT OUT this script from src/ai/dev.ts.`);
-  } catch (error) {
-    console.error(`[Custom Claim Script] Error setting custom claim for UID ${userUID}:`, error);
-  }
-})();
+//   try {
+//     console.log(`[Custom Claim Script] Attempting to set role '${desiredRole}' for user UID: ${userUID}`);
+//     await authAdmin.setCustomUserClaims(userUID, { role: desiredRole });
+//     console.log(`[Custom Claim Script] Successfully set role '${desiredRole}' for user UID: ${userUID}`);
+//     console.log(`[Custom Claim Script] You should now REMOVE or COMMENT OUT this script from src/ai/dev.ts.`);
+//   } catch (error) {
+//     console.error(`[Custom Claim Script] Error setting custom claim for UID ${userUID}:`, error);
+//   }
+// })();

@@ -15,10 +15,10 @@ import '@/ai/flows/payment-notification.ts';
 // 4. Check the console output for success.
 // 5. After successful execution, REMOVE OR COMMENT OUT this entire script block.
 (async () => {
-  const userUID = 'A54rWWPfcVhDwcDekfznY55m1dr1'; // <--- !!! PASTE THE UID OF THE USER HERE (e.g., peter@admin.dairyflow.com's UID) !!!
+  const userUID = '0iM3zNNoSfZQNSmE9MQuPfp8B8x1'; // <--- !!! PASTE THE UID OF THE USER HERE (e.g., peter@admin.dairyflow.com's UID) !!!
   const desiredRole = 'admin';
 
-  if (userUID === 'A54rWWPfcVhDwcDekfznY55m1dr1') { // Check against the specific placeholder
+  if (userUID === '0iM3zNNoSfZQNSmE9MQuPfp8B8x1') { // Check against the specific placeholder
     console.warn(
       '\n[Custom Claim Script] SKIPPING: Please replace "A54rWWPfcVhDwcDekfznY55m1dr1" in src/ai/dev.ts with the actual User UID you want to make an admin.\n'
     );

@@ -16,12 +16,12 @@ import '@/ai/flows/payment-notification.ts';
   const userUID = '0iM3zNNoSfZQNSmE9MQuPfp8B8x1'; // <--- !!! PASTE THE UID OF THE USER HERE (e.g., peter@admin.dairyflow.com's UID) !!!
   const desiredRole = 'admin';
 
-  if (userUID === '0iM3zNNoSfZQNSmE9MQuPfp8B8x1') { // Check against the specific placeholder
-    console.warn(
-      '\n[Custom Claim Script] SKIPPING: Please replace "A54rWWPfcVhDwcDekfznY55m1dr1" in src/ai/dev.ts with the actual User UID you want to make an admin.\n'
-    );
-    return;
-  }
+  // if (userUID === '0iM3zNNoSfZQNSmE9MQuPfp8B8x1') { // Check against the specific placeholder
+  //   console.warn(
+  //     '\n[Custom Claim Script] SKIPPING: Please replace "0iM3zNNoSfZQNSmE9MQuPfp8B8x1" in src/ai/dev.ts with the actual User UID you want to make an admin.\n'
+  //   );
+  //   return;
+  // }
 
   if (!authAdmin) {
     console.error(

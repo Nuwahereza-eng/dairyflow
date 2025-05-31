@@ -26,6 +26,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import type { UserRole } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Droplets } from 'lucide-react';
+import { useRouter } from 'next/navigation'; // Import for potential redirect
 
 const formSchema = z.object({
   role: z.enum(['farmer', 'operator', 'admin'], {
@@ -40,6 +41,7 @@ export function LoginForm() {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
+  const router = useRouter(); // For potential redirect on successful login
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -54,29 +56,58 @@ export function LoginForm() {
     setIsLoading(true);
     setLoginError(null);
     try {
-      await login({
+      const loginResult = await login({
         role: values.role as UserRole,
         username: values.username,
         password: values.password
       });
-      toast({
-        title: "Login Successful",
-        description: `Welcome! Redirecting to dashboard...`,
-      });
-      // AuthContext will handle navigation
-    } catch (error: any) {
-      console.error("Login form submission error:", error);
-      let errorMessage = "Login failed. Please check your credentials and role.";
-      if (error.code === 'auth/invalid-credential' || error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
-        errorMessage = "Invalid username or password for the selected role.";
-      } else if (error.message) {
-        errorMessage = error.message;
+
+      if (loginResult.success) {
+        toast({
+          title: "Login Successful",
+          description: `Welcome! Redirecting to dashboard...`,
+        });
+        // AuthContext's onAuthStateChanged will handle setting currentUser.
+        // Explicit redirect here ensures quicker navigation if onAuthStateChanged takes time.
+        router.push('/dashboard'); 
+      } else {
+        const error = loginResult.error;
+        console.error("LoginForm onSubmit: Login failed. Error from AuthContext:", error);
+        let errorMessage = "Login failed. Please check your credentials and role.";
+        // Check for Firebase specific error codes
+        if (error && error.code) {
+            switch (error.code) {
+                case 'auth/invalid-credential':
+                case 'auth/user-not-found':
+                case 'auth/wrong-password':
+                    errorMessage = "Invalid username or password for the selected role.";
+                    break;
+                case 'auth/user-disabled':
+                    errorMessage = "This user account has been disabled.";
+                    break;
+                default:
+                    errorMessage = error.message || "An unknown authentication error occurred.";
+                    break;
+            }
+        } else if (error && error.message) { // Non-Firebase error object with a message
+            errorMessage = error.message;
+        }
+        
+        setLoginError(errorMessage);
+        toast({
+          variant: "destructive",
+          title: "Login Failed",
+          description: errorMessage,
+        });
       }
-      setLoginError(errorMessage);
+    } catch (unexpectedError: any) {
+      // This catch block handles unexpected errors not originating from AuthContext's handled Firebase errors
+      console.error("LoginForm onSubmit: Unexpected error during login process:", unexpectedError);
+      setLoginError("An unexpected error occurred. Please try again or contact support.");
       toast({
         variant: "destructive",
-        title: "Login Failed",
-        description: errorMessage,
+        title: "Login Error",
+        description: "An unexpected error occurred. Please try again or contact support.",
       });
     } finally {
       setIsLoading(false);
@@ -92,7 +123,7 @@ export function LoginForm() {
           <p><strong>MCC Operators & System Admins:</strong> Please contact another System Administrator to reset your password through the User Management settings.</p>
         </div>
       ),
-      duration: 10000, // Keep message visible longer
+      duration: 10000, 
     });
   };
 
@@ -126,7 +157,7 @@ export function LoginForm() {
           name="username"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Username / Phone (E.164 for Farmer)</FormLabel>
+              <FormLabel>Username / Phone (+256 for Farmer)</FormLabel>
               <FormControl>
                 <Input placeholder="Enter username or phone (+256...)" {...field} />
               </FormControl>
@@ -168,3 +199,5 @@ export function LoginForm() {
     </Form>
   );
 }
+
+    

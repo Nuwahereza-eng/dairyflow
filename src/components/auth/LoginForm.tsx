@@ -26,7 +26,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import type { UserRole } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Droplets } from 'lucide-react';
-import { useRouter } from 'next/navigation'; // Import for potential redirect
+import { useRouter } from 'next/navigation';
 
 const formSchema = z.object({
   role: z.enum(['farmer', 'operator', 'admin'], {
@@ -41,7 +41,7 @@ export function LoginForm() {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
-  const router = useRouter(); // For potential redirect on successful login
+  const router = useRouter();
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -67,29 +67,30 @@ export function LoginForm() {
           title: "Login Successful",
           description: `Welcome! Redirecting to dashboard...`,
         });
-        // AuthContext's onAuthStateChanged will handle setting currentUser.
-        // Explicit redirect here ensures quicker navigation if onAuthStateChanged takes time.
         router.push('/dashboard'); 
       } else {
         const error = loginResult.error;
         console.error("LoginForm onSubmit: Login failed. Error from AuthContext:", error);
         let errorMessage = "Login failed. Please check your credentials and role.";
-        // Check for Firebase specific error codes
+        
         if (error && error.code) {
             switch (error.code) {
                 case 'auth/invalid-credential':
-                case 'auth/user-not-found':
+                case 'auth/user-not-found': // Firebase often groups these or returns invalid-credential for non-existent users.
                 case 'auth/wrong-password':
-                    errorMessage = "Invalid username or password for the selected role.";
+                    errorMessage = "Login failed: Invalid username or password. Please double-check your phone number (e.g. +256701234567 for farmers), ensure you've selected the correct role, and verify your password. For new farmers, the default password is 'Dairy!2345'.";
                     break;
                 case 'auth/user-disabled':
                     errorMessage = "This user account has been disabled.";
                     break;
+                case 'auth/invalid-email': // This can happen if the constructed pseudo-email is malformed.
+                     errorMessage = "The username format is invalid for the selected role. Ensure farmers use their phone number (e.g., +256...) and admins/operators use their assigned username.";
+                     break;
                 default:
                     errorMessage = error.message || "An unknown authentication error occurred.";
                     break;
             }
-        } else if (error && error.message) { // Non-Firebase error object with a message
+        } else if (error && error.message) {
             errorMessage = error.message;
         }
         
@@ -98,10 +99,10 @@ export function LoginForm() {
           variant: "destructive",
           title: "Login Failed",
           description: errorMessage,
+          duration: 7000, // Longer duration for detailed error
         });
       }
     } catch (unexpectedError: any) {
-      // This catch block handles unexpected errors not originating from AuthContext's handled Firebase errors
       console.error("LoginForm onSubmit: Unexpected error during login process:", unexpectedError);
       setLoginError("An unexpected error occurred. Please try again or contact support.");
       toast({
@@ -130,6 +131,11 @@ export function LoginForm() {
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+        <div className="mb-8 flex flex-col items-center pt-4">
+          <Droplets className="h-16 w-16 text-primary mb-4" />
+          <h1 className="text-3xl font-bold text-center text-foreground">DairyFlow</h1>
+          <p className="text-muted-foreground text-center mt-1">MCC & Dairy Farmer Management</p>
+        </div>
         <FormField
           control={form.control}
           name="role"
@@ -157,7 +163,7 @@ export function LoginForm() {
           name="username"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Username / Phone (+256 for Farmer)</FormLabel>
+              <FormLabel>Username / Phone (+256... for Farmer)</FormLabel>
               <FormControl>
                 <Input placeholder="Enter username or phone (+256...)" {...field} />
               </FormControl>
@@ -181,11 +187,7 @@ export function LoginForm() {
         {loginError && (
           <p className="text-sm font-medium text-destructive">{loginError}</p>
         )}
-        <div className="mb-8 flex flex-col items-center pt-4">
-          <Droplets className="h-16 w-16 text-primary mb-4" />
-          <h1 className="text-3xl font-bold text-center text-foreground">DairyFlow</h1>
-          <p className="text-muted-foreground text-center mt-1">MCC & Dairy Farmer Management</p>
-        </div>
+        
         <Button type="submit" className="w-full" disabled={isLoading}>
           {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
           Login
@@ -199,5 +201,3 @@ export function LoginForm() {
     </Form>
   );
 }
-
-    

@@ -4,7 +4,7 @@
 import type { AuthenticatedUser, UserRole } from '@/types';
 import { FARMER_EMAIL_DOMAIN, ADMIN_EMAIL_DOMAIN, OPERATOR_EMAIL_DOMAIN } from '@/types'; // Ensure all are imported
 import React, { createContext, useState, useContext, ReactNode, useEffect } from 'react';
-import { useRouter } from 'next/navigation'; // Changed from next-intl/navigation
+import { useRouter } from 'next/navigation';
 import {
   getAuth,
   signInWithEmailAndPassword,
@@ -24,32 +24,31 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const auth = getAuth(firebaseApp);
 
-console.log("AuthContext.tsx: Script loaded"); // Top-level log
+console.log("AuthContext.tsx: Script loaded. Explicitly client component."); // Top-level log
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [currentUser, setCurrentUser] = useState<AuthenticatedUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const router = useRouter(); // Using next/navigation router
+  const router = useRouter();
 
-  console.log("AuthProvider: Rendering"); // Log when AuthProvider renders
+  console.log("AuthProvider: Rendering");
 
   useEffect(() => {
     console.log("AuthProvider useEffect: Setting up onAuthStateChanged listener");
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser: FirebaseUser | null) => {
-      setIsLoading(true); // Set loading true at the start of auth state change
+      setIsLoading(true);
       console.log("AuthProvider onAuthStateChanged: Fired. Firebase user:", firebaseUser ? firebaseUser.uid : 'null');
       if (firebaseUser) {
         try {
-          const idTokenResult = await firebaseUser.getIdTokenResult(true); // Force refresh token & claims
+          const idTokenResult = await firebaseUser.getIdTokenResult(true);
           console.log("AuthProvider onAuthStateChanged: ID token result obtained. Claims:", idTokenResult.claims);
           const userRoleFromClaims = idTokenResult.claims.role as UserRole;
 
           if (!userRoleFromClaims) {
             console.warn("AuthProvider onAuthStateChanged: User is missing 'role' custom claim. UID:", firebaseUser.uid, "Signing out.");
-            await signOut(auth); // Sign out user with missing role
+            await signOut(auth);
             setCurrentUser(null);
             localStorage.removeItem('currentUser');
-            // router.push('/login'); // Redirect if necessary, handled by AppLayout/HomePage typically
             setIsLoading(false);
             return;
           }
@@ -79,10 +78,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           localStorage.setItem('currentUser', JSON.stringify(authenticatedUser));
         } catch (error) {
             console.error("AuthProvider onAuthStateChanged: Error fetching ID token or claims. UID:", firebaseUser.uid, "Error:", error);
-            await signOut(auth); // Sign out on error
+            await signOut(auth);
             setCurrentUser(null);
             localStorage.removeItem('currentUser');
-            // router.push('/login');
         }
       } else {
         console.log("AuthProvider onAuthStateChanged: No Firebase user. Clearing current user.");
@@ -96,7 +94,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       console.log("AuthProvider useEffect: Cleaning up onAuthStateChanged listener.");
       unsubscribe();
     };
-  }, [router]); // Added router to dependency array if it's used for redirects inside useEffect
+  }, [router]);
 
 
   const login = async (loginDetails: {role: UserRole, username: string, password: string}): Promise<{success: boolean, error?: any}> => {
@@ -147,11 +145,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
 
     try {
-      console.log(`AuthProvider login: Attempting Firebase login for ${role} with pseudo-email: ${emailForFirebase}`);
+      console.log(`AuthProvider login: Attempting with pseudo-email: "${emailForFirebase}", Role: "${role}", Password: "${password}"`); // Temporary: For debugging invalid credential issue
       const userCredential = await signInWithEmailAndPassword(auth, emailForFirebase, password);
       const firebaseUser = userCredential.user;
 
-      const idTokenResult = await firebaseUser.getIdTokenResult(true); // Force refresh claims
+      const idTokenResult = await firebaseUser.getIdTokenResult(true);
       const roleFromClaims = idTokenResult.claims.role as UserRole;
       console.log(`AuthProvider login: Role from claims for ${emailForFirebase}: ${roleFromClaims}`);
 
@@ -167,19 +165,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         return { success: false, error: { message: `Role mismatch. You attempted to log in as ${role}, but your account is ${roleFromClaims}. Please use the correct role.` }};
       }
       
-      // Successful login, onAuthStateChanged will handle setting currentUser and localStorage
-      // No explicit router.push('/dashboard') here; rely on onAuthStateChanged and reactive redirects in AppLayout/HomePage
       console.log(`AuthProvider login: Login successful for ${emailForFirebase}.`);
-      setIsLoading(false); // Set loading false after successful processing before onAuthStateChanged might kick in fully
+      setIsLoading(false);
       return { success: true };
     } catch (error: any) {
-      console.error(`AuthProvider login: Firebase login failed for ${emailForFirebase}. Role: ${role}. Error code: ${error.code}, Message: ${error.message}`, error);
-      setCurrentUser(null); // Ensure current user is cleared on login failure
+      console.error(`AuthProvider login: Firebase login failed for "${emailForFirebase}". Role: "${role}". Error code: ${error.code}, Message: ${error.message}`, error);
+      setCurrentUser(null);
       localStorage.removeItem('currentUser');
       setIsLoading(false);
-      return { success: false, error: error }; // Return the error object
+      return { success: false, error: error };
     }
-    // `finally` block removed as setIsLoading(false) is handled in both try/catch paths leading to a return.
   };
 
   const logout = async () => {
@@ -192,8 +187,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setCurrentUser(null);
     localStorage.removeItem('currentUser');
     console.log("AuthProvider logout: Cleared current user and localStorage. Pushing to /login.");
-    router.push('/login'); // Ensure redirection to login page
-    setIsLoading(false); // Set loading false after all logout operations are complete
+    router.push('/login');
+    setIsLoading(false);
     console.log("AuthProvider logout: Completed.");
   };
   
@@ -216,5 +211,3 @@ export const useAuth = () => {
   console.log("useAuth: Context value received:", context.currentUser ? {isLoading: context.isLoading, uid: context.currentUser.uid, role: context.currentUser.role } : {isLoading: context.isLoading, currentUser: undefined});
   return context;
 };
-
-    

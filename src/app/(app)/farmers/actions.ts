@@ -210,35 +210,38 @@ export async function deleteFarmerAction(id: string) {
 
     const batch = db.batch();
 
-    // 1. Query and batch delete deliveries
+    // 1. Query deliveries
+    console.log(`deleteFarmerAction: Querying deliveries for farmer ID: ${id}`);
     const deliveriesSnapshot = await db.collection("deliveries").where("farmerId", "==", id).get();
+    const deliveryIdsToDelete = deliveriesSnapshot.docs.map(doc => doc.id);
+    console.log(`deleteFarmerAction: Found ${deliveryIdsToDelete.length} deliveries to delete for farmer ${id}. IDs: ${deliveryIdsToDelete.join(', ')}`);
     deliveriesSnapshot.forEach(doc => batch.delete(doc.ref));
-    console.log(`Found ${deliveriesSnapshot.size} deliveries to delete for farmer ${id}.`);
 
-    // 2. Query and batch delete payments
+    // 2. Query payments
+    console.log(`deleteFarmerAction: Querying payments for farmer ID: ${id}`);
     const paymentsSnapshot = await db.collection("payments").where("farmerId", "==", id).get();
+    const paymentIdsToDelete = paymentsSnapshot.docs.map(doc => doc.id);
+    console.log(`deleteFarmerAction: Found ${paymentIdsToDelete.length} payments to delete for farmer ${id}. IDs: ${paymentIdsToDelete.join(', ')}`);
     paymentsSnapshot.forEach(doc => batch.delete(doc.ref));
-    console.log(`Found ${paymentsSnapshot.size} payments to delete for farmer ${id}.`);
 
     // 3. Batch delete the farmer document
     batch.delete(farmerDocRef);
-    console.log(`Farmer document ${id} added to batch delete.`);
+    console.log(`deleteFarmerAction: Farmer document ${id} added to batch delete.`);
 
     // 4. Commit the batch
     await batch.commit();
-    console.log(`Firestore batch delete committed for farmer ${id} and related records.`);
+    console.log(`deleteFarmerAction: Firestore batch delete committed for farmer ${id} and ${deliveryIdsToDelete.length} deliveries, ${paymentIdsToDelete.length} payments.`);
 
     // 5. Delete from Firebase Auth
     try {
-      console.log(`Attempting to delete Firebase Auth user for farmer UID: ${id}`);
+      console.log(`deleteFarmerAction: Attempting to delete Firebase Auth user for farmer UID: ${id}`);
       await authAdmin.deleteUser(id);
-      console.log(`Firebase Auth user deleted for farmer UID: ${id}`);
+      console.log(`deleteFarmerAction: Firebase Auth user deleted for farmer UID: ${id}`);
     } catch (authError: any) {
       if (authError.code === 'auth/user-not-found') {
-        console.warn(`Firebase Auth user for UID ${id} not found during deletion. Might have been already deleted or never existed.`);
+        console.warn(`deleteFarmerAction: Firebase Auth user for UID ${id} not found during deletion. Might have been already deleted or never existed.`);
       } else {
-        console.error("Firebase Auth user deletion failed for farmer UID:", id, authError);
-        // Critical: Firestore docs deleted, but Auth user remains. Log for manual cleanup.
+        console.error("deleteFarmerAction: Firebase Auth user deletion failed for farmer UID:", id, authError);
          return { success: false, errors: { _form: [`Farmer data deleted from DB, but Firebase Auth user deletion failed: ${authError.message}. Please resolve manually.`] } };
       }
     }
@@ -257,3 +260,4 @@ export async function deleteFarmerAction(id: string) {
   }
 }
 
+    

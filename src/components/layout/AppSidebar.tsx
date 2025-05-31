@@ -1,12 +1,12 @@
+
 "use client";
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, Users, Truck, CreditCard, FileText, Settings as SettingsIcon, LogOut, Milk } from 'lucide-react';
+import { Home, Users, Truck, CreditCard, FileText, Settings as SettingsIcon, LogOut, Droplets } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
-import { MilkIcon } from '@/components/icons/MilkIcon';
 
 interface NavItem {
   href: string;
@@ -36,7 +36,7 @@ export function AppSidebar() {
     <aside className="sticky top-0 h-screen w-64 bg-card text-card-foreground border-r flex flex-col shadow-lg">
       <div className="p-6 border-b">
         <Link href="/dashboard" className="flex items-center gap-2">
-          <MilkIcon className="h-8 w-8 text-primary" />
+          <Droplets className="h-8 w-8 text-primary" />
           <h1 className="text-2xl font-bold text-primary">DairyFlow</h1>
         </Link>
       </div>

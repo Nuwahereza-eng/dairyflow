@@ -25,7 +25,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import type { UserRole } from '@/types';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Droplets } from 'lucide-react';
 
 const formSchema = z.object({
   role: z.enum(['farmer', 'operator', 'admin'], {
@@ -150,6 +150,11 @@ export function LoginForm() {
         {loginError && (
           <p className="text-sm font-medium text-destructive">{loginError}</p>
         )}
+        <div className="mb-8 flex flex-col items-center pt-4">
+          <Droplets className="h-16 w-16 text-primary mb-4" />
+          <h1 className="text-3xl font-bold text-center text-foreground">DairyFlow</h1>
+          <p className="text-muted-foreground text-center mt-1">MCC & Dairy Farmer Management</p>
+        </div>
         <Button type="submit" className="w-full" disabled={isLoading}>
           {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
           Login

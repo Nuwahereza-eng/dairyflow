@@ -25,7 +25,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import type { UserRole } from '@/types';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Droplets } from 'lucide-react';
+import { Loader2, Droplets, Eye, EyeOff } from 'lucide-react'; // Added Eye, EyeOff
 import { useRouter } from 'next/navigation';
 
 const formSchema = z.object({
@@ -41,6 +41,7 @@ export function LoginForm() {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false); // State for password visibility
   const router = useRouter();
 
   const form = useForm<z.infer<typeof formSchema>>({
@@ -67,7 +68,7 @@ export function LoginForm() {
           title: "Login Successful",
           description: `Welcome! Redirecting to dashboard...`,
         });
-        router.push('/dashboard'); 
+        router.push('/dashboard');
       } else {
         const error = loginResult.error;
         console.error("LoginForm onSubmit: Login failed. Error from AuthContext:", error);
@@ -76,14 +77,14 @@ export function LoginForm() {
         if (error && error.code) {
             switch (error.code) {
                 case 'auth/invalid-credential':
-                case 'auth/user-not-found': // Firebase often groups these or returns invalid-credential for non-existent users.
+                case 'auth/user-not-found':
                 case 'auth/wrong-password':
                     errorMessage = "Login failed: Invalid username or password. Please double-check your phone number (e.g. +256701234567 for farmers), ensure you've selected the correct role, and verify your password. For new farmers, the default password is 'Dairy!2345'.";
                     break;
                 case 'auth/user-disabled':
                     errorMessage = "This user account has been disabled.";
                     break;
-                case 'auth/invalid-email': // This can happen if the constructed pseudo-email is malformed.
+                case 'auth/invalid-email':
                      errorMessage = "The username format is invalid for the selected role. Ensure farmers use their phone number (e.g., +256...) and admins/operators use their assigned username.";
                      break;
                 default:
@@ -99,7 +100,7 @@ export function LoginForm() {
           variant: "destructive",
           title: "Login Failed",
           description: errorMessage,
-          duration: 7000, // Longer duration for detailed error
+          duration: 7000,
         });
       }
     } catch (unexpectedError: any) {
@@ -127,6 +128,8 @@ export function LoginForm() {
       duration: 10000, 
     });
   };
+
+  const togglePasswordVisibility = () => setShowPassword(!showPassword);
 
   return (
     <Form {...form}>
@@ -177,9 +180,27 @@ export function LoginForm() {
           render={({ field }) => (
             <FormItem>
               <FormLabel>Password</FormLabel>
-              <FormControl>
-                <Input type="password" placeholder="Enter password" {...field} />
-              </FormControl>
+              <div className="relative">
+                <FormControl>
+                  <Input 
+                    type={showPassword ? 'text' : 'password'} 
+                    placeholder="Enter password" 
+                    {...field} 
+                    className="pr-10" // Add padding for the icon
+                  />
+                </FormControl>
+                <Button 
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 text-muted-foreground hover:text-foreground"
+                  onClick={togglePasswordVisibility}
+                  tabIndex={-1} // Keep it out of tab order
+                >
+                  {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                  <span className="sr-only">{showPassword ? "Hide password" : "Show password"}</span>
+                </Button>
+              </div>
               <FormMessage />
             </FormItem>
           )}

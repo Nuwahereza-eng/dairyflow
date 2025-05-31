@@ -208,11 +208,27 @@ export async function deleteFarmerAction(id: string) {
       return { success: false, errors: { _form: ["Farmer not found."] } };
     }
 
-    // Delete from Firestore
-    await farmerDocRef.delete();
+    const batch = db.batch();
 
-    // Delete from Firebase Auth
-    // The farmer's document ID (id) IS their Firebase Auth UID
+    // 1. Query and batch delete deliveries
+    const deliveriesSnapshot = await db.collection("deliveries").where("farmerId", "==", id).get();
+    deliveriesSnapshot.forEach(doc => batch.delete(doc.ref));
+    console.log(`Found ${deliveriesSnapshot.size} deliveries to delete for farmer ${id}.`);
+
+    // 2. Query and batch delete payments
+    const paymentsSnapshot = await db.collection("payments").where("farmerId", "==", id).get();
+    paymentsSnapshot.forEach(doc => batch.delete(doc.ref));
+    console.log(`Found ${paymentsSnapshot.size} payments to delete for farmer ${id}.`);
+
+    // 3. Batch delete the farmer document
+    batch.delete(farmerDocRef);
+    console.log(`Farmer document ${id} added to batch delete.`);
+
+    // 4. Commit the batch
+    await batch.commit();
+    console.log(`Firestore batch delete committed for farmer ${id} and related records.`);
+
+    // 5. Delete from Firebase Auth
     try {
       console.log(`Attempting to delete Firebase Auth user for farmer UID: ${id}`);
       await authAdmin.deleteUser(id);
@@ -222,17 +238,22 @@ export async function deleteFarmerAction(id: string) {
         console.warn(`Firebase Auth user for UID ${id} not found during deletion. Might have been already deleted or never existed.`);
       } else {
         console.error("Firebase Auth user deletion failed for farmer UID:", id, authError);
-        // Critical: Firestore doc deleted, but Auth user remains. Log for manual cleanup.
+        // Critical: Firestore docs deleted, but Auth user remains. Log for manual cleanup.
          return { success: false, errors: { _form: [`Farmer data deleted from DB, but Firebase Auth user deletion failed: ${authError.message}. Please resolve manually.`] } };
       }
     }
 
     revalidatePath("/farmers");
+    revalidatePath("/deliveries");
+    revalidatePath("/payments");
     revalidatePath("/dashboard");
     return { success: true };
-  } catch (error) {
-    console.error("Error deleting farmer:", error);
-    return { success: false, errors: { _form: ["Failed to delete farmer from database."] } };
+  } catch (error: any) {
+    console.error("Error deleting farmer and associated data:", error);
+    if (error.code === 9 || error.code === 5 ) { // FAILED_PRECONDITION - often missing index for "where" clauses
+         return { success: false, errors: { _form: [`Failed to delete farmer: A Firestore query requires an index. Details: ${error.message || error.details}. Please check Firestore console for index creation links.`] } };
+    }
+    return { success: false, errors: { _form: [`Failed to delete farmer from database: ${error.message}`] } };
   }
 }
 

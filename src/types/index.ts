@@ -15,8 +15,8 @@ export interface Delivery {
   farmerName?: string; // Denormalized for display
   quantity: number;
   quality: 'A' | 'B' | 'C';
-  date: string;
-  time: string;
+  date: string; // YYYY-MM-DD
+  time: string; // HH:MM
   notes?: string;
   amount: number;
 }
@@ -25,17 +25,19 @@ export interface Payment {
   id: string;
   farmerId: string;
   farmerName?: string; // Denormalized for display
-  period: string; // e.g., "May 2024"
+  period: string; // e.g., "YYYY-MM"
   totalLiters: number;
   amountDue: number;
   status: 'pending' | 'paid';
-  lastPaymentDate?: string;
+  lastPaymentDate?: string; // YYYY-MM-DD
+  paymentMethod?: 'cash' | 'bank' | 'mobile_money';
+  transactionId?: string;
+  deliveryIds: string[]; // IDs of deliveries covered by this payment
+  generatedDate: string; // YYYY-MM-DD, when this payment record was generated
 }
 
 export type UserRole = 'farmer' | 'operator' | 'admin';
 
-// This User type is now primarily for listing Admin/Operator users in settings.
-// It reflects data that can be derived from Firebase Auth users.
 export interface User {
   id: string; // Firebase Auth UID
   username: string; // Plain username (e.g., 'admin1', 'operator_jane')

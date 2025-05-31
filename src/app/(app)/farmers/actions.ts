@@ -6,6 +6,8 @@ import { revalidatePath } from "next/cache";
 import type { Farmer } from "@/types";
 import { FARMER_EMAIL_DOMAIN } from "@/types"; // Use FARMER_EMAIL_DOMAIN
 import { db, authAdmin } from "@/lib/firebaseAdmin";
+import { getSystemSettings } from '@/app/(app)/settings/actions';
+import { sendWelcomeNotification } from '@/ai/flows/welcome-notification'; // Import the new flow
 
 const farmerSchema = z.object({
   id: z.string().optional(),
@@ -65,7 +67,7 @@ export async function addFarmerAction(data: Omit<Farmer, 'id' | 'joinDate'> & { 
       return { success: false, errors: { phone: ["A farmer with this phone number already exists in the database."] } };
     }
     
-    const defaultPassword = "Dairy!2345"; // Consider making this configurable or more secure
+    const defaultPassword = "Dairy!2345"; 
     const emailForFirebase = phone.trim() + FARMER_EMAIL_DOMAIN;
     let firebaseUid = '';
 
@@ -76,11 +78,10 @@ export async function addFarmerAction(data: Omit<Farmer, 'id' | 'joinDate'> & { 
         email: emailForFirebase,
         password: defaultPassword,
         displayName: name,
-        emailVerified: true, // Or false, depending on your flow
+        emailVerified: true, 
       });
       firebaseUid = createdUser.uid;
       console.log(`Firebase Auth user created for ${name} (UID: ${firebaseUid}) with pseudo-email: ${emailForFirebase}`);
-      // Set custom claim for role
       await authAdmin.setCustomUserClaims(firebaseUid, { role: 'farmer' });
       console.log(`Custom claim { role: 'farmer' } set for UID: ${firebaseUid}`);
       console.log(`Default password for ${name} is: ${defaultPassword}`);
@@ -99,18 +100,33 @@ export async function addFarmerAction(data: Omit<Farmer, 'id' | 'joinDate'> & { 
       };
     }
 
-    // Use the Firebase Auth UID as the document ID in Firestore 'farmers' collection
     const farmerRef = db.collection("farmers").doc(firebaseUid);
-    // Save only the necessary farmer data, not the firebaseUid as 'id' field in Firestore document
     const farmerDataToSave = { name, phone, location, joinDate, idNumber, notes };
     await farmerRef.set(farmerDataToSave);
     
     const newFarmer: Farmer = { id: firebaseUid, ...farmerDataToSave };
 
-    console.log(`Simulated Welcome SMS to ${newFarmer.phone}: Welcome to DairyFlow, ${newFarmer.name}! Your login is your phone number. Password: ${defaultPassword}`);
+    // Send Welcome SMS
+    const currentSystemSettings = await getSystemSettings();
+    if (currentSystemSettings.smsProvider !== 'none' && newFarmer.phone) {
+      try {
+        const smsResult = await sendWelcomeNotification({
+          farmerName: newFarmer.name,
+          phoneNumber: newFarmer.phone,
+          defaultPassword: defaultPassword,
+        });
+        console.log("Welcome SMS Notification Result:", smsResult);
+      } catch (error) {
+        console.error("Failed to call sendWelcomeNotification flow:", error);
+      }
+    } else if (currentSystemSettings.smsProvider === 'none') {
+      console.log(`Simulated Welcome SMS (provider 'none') to ${newFarmer.phone}: Welcome to DairyFlow, ${newFarmer.name}! Your login is your phone number. Password: ${defaultPassword}`);
+    } else if (!newFarmer.phone) {
+        console.log(`Welcome SMS not sent: Farmer ${newFarmer.name} has no E.164 phone number.`);
+    }
     
     revalidatePath("/farmers");
-    revalidatePath("/dashboard"); // Farmer count might change
+    revalidatePath("/dashboard"); 
     return { success: true, farmer: newFarmer };
   } catch (error) {
     console.error("Error adding farmer:", error);
@@ -123,7 +139,6 @@ export async function updateFarmerAction(id: string, data: Partial<Omit<Farmer, 
     return { success: false, errors: { _form: ["Farmer ID is required for update."] } };
   }
   
-  // Ensure optional fields are handled correctly (e.g. empty string if provided)
   const dataForValidation = {
     ...data,
     idNumber: data.idNumber === undefined ? undefined : (data.idNumber || ''),
@@ -141,23 +156,20 @@ export async function updateFarmerAction(id: string, data: Partial<Omit<Farmer, 
     if (!currentFarmerDoc.exists) {
         return { success: false, errors: { _form: ["Farmer not found."] } };
     }
-    const currentFarmerData = currentFarmerDoc.data() as Omit<Farmer, 'id'>; // Firestore data doesn't store 'id' field
+    const currentFarmerData = currentFarmerDoc.data() as Omit<Farmer, 'id'>; 
 
-    // If phone number is being changed, check if the new phone number already exists for another farmer
     if (validatedData.data.phone && validatedData.data.phone !== currentFarmerData.phone) {
         const existingFarmerQuery = await db.collection("farmers").where("phone", "==", validatedData.data.phone).limit(1).get();
         if (!existingFarmerQuery.empty) {
             const conflictingFarmer = existingFarmerQuery.docs[0];
-            if (conflictingFarmer.id !== id) { // Ensure it's not the same farmer's record
+            if (conflictingFarmer.id !== id) { 
                  return { success: false, errors: { phone: ["This phone number is already in use by another farmer."] } };
             }
         }
     }
 
-
     await farmerDocRef.update(validatedData.data);
 
-    // Update Firebase Auth if phone or name changes
     const authUpdates: { email?: string; displayName?: string } = {};
     if (validatedData.data.phone && validatedData.data.phone !== currentFarmerData.phone) {
         const oldEmailForFirebase = currentFarmerData.phone.trim() + FARMER_EMAIL_DOMAIN;
@@ -172,16 +184,14 @@ export async function updateFarmerAction(id: string, data: Partial<Omit<Farmer, 
 
     if (Object.keys(authUpdates).length > 0) {
         try {
-            await authAdmin.updateUser(id, authUpdates); // id is the UID
+            await authAdmin.updateUser(id, authUpdates); 
             console.log(`Updated Firebase Auth details for farmer ${id}:`, authUpdates);
         } catch (authError: any) {
             console.error(`Failed to update Firebase Auth details for farmer ${id}:`, authError);
-            // Potentially rollback Firestore changes or log critical error
-            if (authUpdates.email) { // If email update failed, it's more critical
-                 await farmerDocRef.update({ phone: currentFarmerData.phone }); // Attempt rollback of phone in Firestore
+            if (authUpdates.email) { 
+                 await farmerDocRef.update({ phone: currentFarmerData.phone }); 
                  return { success: false, errors: { phone: [`Failed to update auth email: ${authError.message}. Phone update rolled back.`] } };
             }
-            // For displayName failure, we might just log and proceed
         }
     }
 
@@ -210,29 +220,24 @@ export async function deleteFarmerAction(id: string) {
 
     const batch = db.batch();
 
-    // 1. Query deliveries
     console.log(`deleteFarmerAction: Querying deliveries for farmer ID: ${id}`);
     const deliveriesSnapshot = await db.collection("deliveries").where("farmerId", "==", id).get();
     const deliveryIdsToDelete = deliveriesSnapshot.docs.map(doc => doc.id);
     console.log(`deleteFarmerAction: Found ${deliveryIdsToDelete.length} deliveries to delete for farmer ${id}. IDs: ${deliveryIdsToDelete.join(', ')}`);
     deliveriesSnapshot.forEach(doc => batch.delete(doc.ref));
 
-    // 2. Query payments
     console.log(`deleteFarmerAction: Querying payments for farmer ID: ${id}`);
     const paymentsSnapshot = await db.collection("payments").where("farmerId", "==", id).get();
     const paymentIdsToDelete = paymentsSnapshot.docs.map(doc => doc.id);
     console.log(`deleteFarmerAction: Found ${paymentIdsToDelete.length} payments to delete for farmer ${id}. IDs: ${paymentIdsToDelete.join(', ')}`);
     paymentsSnapshot.forEach(doc => batch.delete(doc.ref));
 
-    // 3. Batch delete the farmer document
     batch.delete(farmerDocRef);
     console.log(`deleteFarmerAction: Farmer document ${id} added to batch delete.`);
 
-    // 4. Commit the batch
     await batch.commit();
     console.log(`deleteFarmerAction: Firestore batch delete committed for farmer ${id} and ${deliveryIdsToDelete.length} deliveries, ${paymentIdsToDelete.length} payments.`);
 
-    // 5. Delete from Firebase Auth
     try {
       console.log(`deleteFarmerAction: Attempting to delete Firebase Auth user for farmer UID: ${id}`);
       await authAdmin.deleteUser(id);
@@ -253,11 +258,9 @@ export async function deleteFarmerAction(id: string) {
     return { success: true };
   } catch (error: any) {
     console.error("Error deleting farmer and associated data:", error);
-    if (error.code === 9 || error.code === 5 ) { // FAILED_PRECONDITION - often missing index for "where" clauses
+    if (error.code === 9 || error.code === 5 ) { 
          return { success: false, errors: { _form: [`Failed to delete farmer: A Firestore query requires an index. Details: ${error.message || error.details}. Please check Firestore console for index creation links.`] } };
     }
     return { success: false, errors: { _form: [`Failed to delete farmer from database: ${error.message}`] } };
   }
 }
-
-    

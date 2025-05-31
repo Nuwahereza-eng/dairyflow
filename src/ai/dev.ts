@@ -11,6 +11,7 @@ config(); // Ensure environment variables are loaded first
 // Import your Genkit flows so they are registered with the Genkit system
 import '@/ai/flows/sms-notifications.ts';
 import '@/ai/flows/payment-notification.ts';
+import '@/ai/flows/welcome-notification.ts'; // Added new welcome notification flow
 
 // The temporary script for setting custom claims has been removed
 // as it should have been run once successfully.
@@ -18,4 +19,3 @@ import '@/ai/flows/payment-notification.ts';
 
 console.log("Genkit dev server configured. Imported flows should be registered.");
 console.log("Ensure your .env file is correctly populated with API keys (GOOGLE_API_KEY, TWILIO_*, FIREBASE_SERVICE_ACCOUNT_KEY_JSON, NEXT_PUBLIC_FIREBASE_CONFIG).");
-

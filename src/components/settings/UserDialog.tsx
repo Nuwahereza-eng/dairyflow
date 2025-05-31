@@ -33,7 +33,7 @@ import type { User, UserRole } from "@/types"; // Import UserRole
 import { addUserAction, updateUserAction, updateUserPasswordAction } from "@/app/(app)/settings/actions";
 import { useToast } from "@/hooks/use-toast";
 import { useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, Eye, EyeOff } from "lucide-react"; // Added Eye, EyeOff
 
 // Schema for the form data (password is for new users or changing password)
 const userFormSchema = z.object({
@@ -55,6 +55,7 @@ interface UserDialogProps {
 export function UserDialog({ open, onOpenChange, user, onFormSubmit }: UserDialogProps) {
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false); // State for password visibility
   
   const form = useForm<UserFormData>({
     resolver: zodResolver(userFormSchema),
@@ -68,6 +69,7 @@ export function UserDialog({ open, onOpenChange, user, onFormSubmit }: UserDialo
 
   useEffect(() => {
     if (open) { // Reset form only when dialog opens
+      setShowPassword(false); // Reset password visibility on open
       if (user) {
         form.reset({
           username: user.username,
@@ -85,6 +87,8 @@ export function UserDialog({ open, onOpenChange, user, onFormSubmit }: UserDialo
       }
     }
   }, [user, form, open]);
+
+  const togglePasswordVisibility = () => setShowPassword(!showPassword);
 
   async function onSubmit(data: UserFormData) {
     setIsSubmitting(true);
@@ -173,9 +177,27 @@ export function UserDialog({ open, onOpenChange, user, onFormSubmit }: UserDialo
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Password {user ? "(Leave blank to keep current)" : ""}</FormLabel>
-                  <FormControl>
-                    <Input type="password" placeholder={user ? "Enter new password" : "Enter password"} {...field} />
-                  </FormControl>
+                  <div className="relative">
+                    <FormControl>
+                      <Input 
+                        type={showPassword ? 'text' : 'password'} 
+                        placeholder={user ? "Enter new password" : "Enter password"} 
+                        {...field} 
+                        className="pr-10"
+                      />
+                    </FormControl>
+                    <Button 
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 text-muted-foreground hover:text-foreground"
+                      onClick={togglePasswordVisibility}
+                      tabIndex={-1} 
+                    >
+                      {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                      <span className="sr-only">{showPassword ? "Hide password" : "Show password"}</span>
+                    </Button>
+                  </div>
                   <FormMessage />
                 </FormItem>
               )}

@@ -143,6 +143,18 @@ export async function updateFarmerAction(id: string, data: Partial<Omit<Farmer, 
     }
     const currentFarmerData = currentFarmerDoc.data() as Omit<Farmer, 'id'>; // Firestore data doesn't store 'id' field
 
+    // If phone number is being changed, check if the new phone number already exists for another farmer
+    if (validatedData.data.phone && validatedData.data.phone !== currentFarmerData.phone) {
+        const existingFarmerQuery = await db.collection("farmers").where("phone", "==", validatedData.data.phone).limit(1).get();
+        if (!existingFarmerQuery.empty) {
+            const conflictingFarmer = existingFarmerQuery.docs[0];
+            if (conflictingFarmer.id !== id) { // Ensure it's not the same farmer's record
+                 return { success: false, errors: { phone: ["This phone number is already in use by another farmer."] } };
+            }
+        }
+    }
+
+
     await farmerDocRef.update(validatedData.data);
 
     // Update Firebase Auth if phone or name changes
@@ -223,3 +235,4 @@ export async function deleteFarmerAction(id: string) {
     return { success: false, errors: { _form: ["Failed to delete farmer from database."] } };
   }
 }
+

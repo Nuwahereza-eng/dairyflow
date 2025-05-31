@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
@@ -22,6 +23,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { format } from 'date-fns';
+import { Label } from "@/components/ui/label"; // Imported Label
 
 export default function FarmersPage() {
   const [farmers, setFarmers] = useState<Farmer[]>([]);
@@ -84,6 +86,7 @@ export default function FarmersPage() {
       toast({ variant: "destructive", title: "Error", description: "Could not delete farmer." });
     }
     setFarmerToDeleteId(null);
+    setIsConfirmDeleteDialogOpen(false); // Close dialog after attempting delete
   };
   
   const handleViewDetails = (farmer: Farmer) => {
@@ -114,6 +117,7 @@ export default function FarmersPage() {
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="pl-10 w-full shadow-inner"
+            aria-label="Search farmers"
           />
         </div>
       </div>
@@ -132,6 +136,14 @@ export default function FarmersPage() {
           <Button variant="outline" className="mt-4" onClick={() => setSearchTerm('')}>
             Clear Search
           </Button>
+        </div>
+      ) : filteredFarmers.length === 0 && !searchTerm ? (
+         <div className="text-center py-12 bg-card rounded-lg shadow-sm border">
+          <UserX className="mx-auto h-12 w-12 text-muted-foreground" />
+          <h3 className="mt-2 text-xl font-semibold text-foreground">No Farmers Registered</h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            There are no farmers in the system yet. Click "Add New Farmer" to get started.
+          </p>
         </div>
       ) : (
         <FarmersTable
@@ -153,7 +165,7 @@ export default function FarmersPage() {
         open={isConfirmDeleteDialogOpen}
         onOpenChange={setIsConfirmDeleteDialogOpen}
         title="Are you sure?"
-        description="This action cannot be undone. This will permanently delete the farmer and all related data."
+        description="This action cannot be undone. This will permanently delete the farmer and their associated authentication account. Deliveries and payment records will remain but may show 'Unknown Farmer'."
         onConfirm={confirmDelete}
         confirmText="Yes, delete farmer"
       />
@@ -163,29 +175,29 @@ export default function FarmersPage() {
           <DialogContent className="sm:max-w-md bg-card shadow-xl">
             <DialogHeader>
               <DialogTitle className="text-2xl font-semibold">{viewingFarmer.name}</DialogTitle>
-              <DialogDescription>Farmer ID: CF{viewingFarmer.id.padStart(3, '0')}</DialogDescription>
+              <DialogDescription>Farmer ID: {viewingFarmer.id}</DialogDescription>
             </DialogHeader>
             <ScrollArea className="max-h-[60vh] pr-2">
               <div className="space-y-3 py-4 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Phone:</span>
+                  <Label className="text-muted-foreground">Phone:</Label>
                   <span className="font-medium text-foreground">{viewingFarmer.phone}</span>
                 </div>
                 <Separator />
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Location:</span>
+                  <Label className="text-muted-foreground">Location:</Label>
                   <span className="font-medium text-foreground">{viewingFarmer.location}</span>
                 </div>
                 <Separator />
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Join Date:</span>
+                  <Label className="text-muted-foreground">Join Date:</Label>
                   <span className="font-medium text-foreground">{format(new Date(viewingFarmer.joinDate), 'PPP')}</span>
                 </div>
                 {viewingFarmer.idNumber && (
                   <>
                     <Separator />
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">ID Number:</span>
+                      <Label className="text-muted-foreground">ID Number:</Label>
                       <span className="font-medium text-foreground">{viewingFarmer.idNumber}</span>
                     </div>
                   </>
@@ -194,8 +206,8 @@ export default function FarmersPage() {
                   <>
                     <Separator />
                     <div>
-                      <span className="text-muted-foreground">Notes:</span>
-                      <p className="font-medium text-foreground mt-1 bg-muted/50 p-2 rounded-md">{viewingFarmer.notes}</p>
+                      <Label className="text-muted-foreground block mb-1">Notes:</Label>
+                      <p className="font-medium text-foreground bg-muted/50 p-3 rounded-md whitespace-pre-wrap">{viewingFarmer.notes}</p>
                     </div>
                   </>
                 )}
@@ -210,3 +222,4 @@ export default function FarmersPage() {
     </div>
   );
 }
+

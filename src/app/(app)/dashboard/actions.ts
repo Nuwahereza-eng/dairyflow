@@ -24,6 +24,7 @@ export async function getDashboardStats(currentUserId?: string, currentUserRole?
   let pendingPaymentsQuery: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> = db.collection('payments').where('status', '==', 'pending');
 
   if (currentUserRole === 'farmer' && currentUserId) {
+    console.log(`DashboardStats: Farmer view for UID ${currentUserId}. Filtering payments by farmerId and status 'pending'.`);
     todaysDeliveriesQuery = todaysDeliveriesQuery.where('farmerId', '==', currentUserId);
     pendingPaymentsQuery = pendingPaymentsQuery.where('farmerId', '==', currentUserId);
     const farmerDoc = await db.collection('farmers').doc(currentUserId).get();
@@ -32,7 +33,8 @@ export async function getDashboardStats(currentUserId?: string, currentUserRole?
       farmerName = farmerData.name;
       farmerIdSnippet = currentUserId.substring(0,8) + '...';
     }
-  } else { // Admin or Operator
+  } else {
+    console.log(`DashboardStats: Admin/Operator view or missing farmer details. Base pending payments query: status 'pending'.`);
     const farmersCountSnapshot = await db.collection('farmers').count().get();
     totalFarmers = farmersCountSnapshot.data().count;
   }
